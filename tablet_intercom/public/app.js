@@ -118,15 +118,17 @@ async function initMedia() {
 function openWs() {
   if (wsTimer) { clearTimeout(wsTimer); wsTimer = null; }
 
-  // Build WS URL from current page location.
-  // Works for direct access (ws://host:8099) and HA Ingress (wss://ha/api/hassio_ingress/TOKEN/).
-  const loc  = window.location;
-  const prot = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-  // Keep pathname for Ingress; strip trailing slash then re-add nothing
-  const path = loc.pathname === '/' ? '' : loc.pathname.replace(/\/$/, '');
-  const url  = `${prot}//${loc.host}${path}`;
+  const loc      = window.location;
+  const prot     = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+  // Strip trailing slash → gives '' for root, '/api/hassio_ingress/TOKEN' for Ingress
+  const basePath = loc.pathname.replace(/\/$/, '');
+  // Always connect to the dedicated /ws endpoint to be unambiguous for HA Ingress proxy
+  const url      = `${prot}//${loc.host}${basePath}/ws`;
 
-  dbg(`WS → ${url}`);
+  dbg(`href:     ${loc.href}`);
+  dbg(`pathname: ${loc.pathname}`);
+  dbg(`basePath: ${basePath || '/'}`);
+  dbg(`WS URL:   ${url}`);
   setStatus('Verbinde…');
 
   try {

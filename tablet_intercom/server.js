@@ -30,10 +30,17 @@ app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// ─── WebSocket (noServer so it works on any path, incl. HA Ingress) ──────────
+// ─── WebSocket ────────────────────────────────────────────────────────────────
+// noServer + explicit upgrade handler so HA Ingress can proxy /ws on any sub-path.
+// HA strips its ingress prefix before forwarding, so the backend always sees /ws.
 const wss = new WebSocket.Server({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
+  if (req.url !== '/ws') {
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+    socket.destroy();
+    return;
+  }
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 
