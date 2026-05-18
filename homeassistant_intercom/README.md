@@ -1,4 +1,4 @@
-# Tablet Intercom – Home Assistant Add-on
+# HomeAssistant InterCom – Home Assistant Add-on
 
 Lokales Audio/Video-Intercom-System für Android-Tablets.  
 Kein Cloud-Dienst, kein externer Server – läuft vollständig im LAN.
@@ -21,7 +21,7 @@ Kein Cloud-Dienst, kein externer Server – läuft vollständig im LAN.
 
 ### 2. Add-on installieren
 
-- Im Add-on Store unter **„Tablet Intercom"** auf **Installieren** klicken
+- Im Add-on Store unter **„HomeAssistant InterCom"** auf **Installieren** klicken
 - Warten bis der Docker-Build abgeschlossen ist (~1–2 Min.)
 
 ### 3. Add-on starten
@@ -80,13 +80,13 @@ In `configuration.yaml`:
 
 ```yaml
 panel_iframe:
-  tablet_intercom:
-    title: Tablet Intercom
+  homeassistant_intercom:
+    title: HomeAssistant InterCom
     icon: mdi:video
     url: http://HOMEASSISTANT-IP:8099
 ```
 
-Nach `ha core restart` erscheint „Tablet Intercom" in der Seitenleiste.
+Nach `ha core restart` erscheint „HomeAssistant InterCom" in der Seitenleiste.
 
 ---
 

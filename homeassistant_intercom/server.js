@@ -173,8 +173,8 @@ wss.on('connection', (ws) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Intercom] Läuft auf http://0.0.0.0:${PORT}`);
-  console.log(`[Intercom] Health: http://0.0.0.0:${PORT}/health`);
+  console.log(`[InterCom] Läuft auf http://0.0.0.0:${PORT}`);
+  console.log(`[InterCom] Health: http://0.0.0.0:${PORT}/health`);
 });
 
 process.on('SIGTERM', () => server.close(() => process.exit(0)));

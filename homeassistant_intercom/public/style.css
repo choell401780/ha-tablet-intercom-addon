@@ -330,7 +330,86 @@ header {
   border: 1px solid var(--border);
   border-radius: 4px;
 }
-.foot-btn:hover { background: var(--surf2); color: var(--text); }
+.foot-btn:hover  { background: var(--surf2); color: var(--text); }
+.foot-active     { background: var(--surf2); color: var(--text); border-color: var(--blue); }
+
+/* ─── Settings panel ─────────────────────────────────────────────────────── */
+#panel-settings {
+  background: var(--surf);
+  border-top: 1px solid var(--border);
+  padding: .75rem 1rem;
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem;
+}
+
+.s-group {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+.s-label {
+  font-size: .72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--dim);
+}
+
+.s-val { font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+.ring-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem;
+}
+
+.ring-item {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .28rem .6rem;
+  cursor: pointer;
+  font-size: .82rem;
+  color: var(--text);
+  transition: border-color .15s;
+}
+
+.ring-item:has(input:checked) {
+  border-color: var(--blue);
+  background: rgba(31,111,235,.18);
+}
+
+.ring-item input[type="radio"] {
+  accent-color: var(--blue);
+  width: 13px; height: 13px;
+}
+
+.s-btn {
+  align-self: flex-start;
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: .3rem .8rem;
+  color: var(--text);
+  font-size: .8rem;
+  margin-top: .1rem;
+}
+.s-btn:hover { background: var(--blue); border-color: var(--blue); }
+
+.s-range {
+  width: 100%;
+  accent-color: var(--blue);
+  height: 4px;
+  cursor: pointer;
+}
 
 /* ─── Utility ────────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }

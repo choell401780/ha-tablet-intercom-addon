@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <meta name="mobile-web-app-capable" content="yes">
-  <title>Tablet Intercom</title>
+  <title>HomeAssistant InterCom</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
   <div id="screen-setup" class="screen active">
     <div class="setup-card">
       <div class="logo">📞</div>
-      <h1>Tablet Intercom</h1>
+      <h1>HomeAssistant InterCom</h1>
       <p>Welche Station ist dieses Tablet?</p>
       <div class="setup-list">
         <button class="btn-pick" data-id="buero">
@@ -54,7 +54,7 @@
 
       <video id="vid-local" autoplay playsinline muted></video>
 
-      <!-- Calling overlay -->
+      <!-- Calling/Ringing overlay -->
       <div id="overlay-call" class="call-overlay hidden">
         <span id="overlay-text"></span>
       </div>
@@ -96,6 +96,33 @@
       </button>
     </div>
 
+    <!-- Settings panel -->
+    <div id="panel-settings" class="hidden">
+
+      <div class="s-group">
+        <div class="s-label">🔔 Klingelton</div>
+        <div class="ring-list">
+          <label class="ring-item"><input type="radio" name="ringtone" value="ring1"><span>Ton 1</span></label>
+          <label class="ring-item"><input type="radio" name="ringtone" value="ring2"><span>Ton 2</span></label>
+          <label class="ring-item"><input type="radio" name="ringtone" value="ring3"><span>Ton 3</span></label>
+          <label class="ring-item"><input type="radio" name="ringtone" value="ring4"><span>Ton 4</span></label>
+          <label class="ring-item"><input type="radio" name="ringtone" value="ring5"><span>Ton 5</span></label>
+        </div>
+        <button id="btn-ring-test" class="s-btn">▶ Testen</button>
+      </div>
+
+      <div class="s-group">
+        <div class="s-label">🔊 Lautsprecher <span id="vol-pct" class="s-val">70%</span></div>
+        <input type="range" id="vol-slider" class="s-range" min="0" max="100" value="70">
+      </div>
+
+      <div class="s-group">
+        <div class="s-label">🎙 Mikrofon-Gain <span id="gain-pct" class="s-val">100%</span></div>
+        <input type="range" id="gain-slider" class="s-range" min="0" max="300" value="100">
+      </div>
+
+    </div>
+
     <!-- Status bar -->
     <div id="statusbar">Initialisiere…</div>
 
@@ -110,8 +137,9 @@
 
     <!-- Footer -->
     <div id="footer">
-      <button id="btn-change" class="foot-btn">Station ändern</button>
-      <button id="btn-dbg-toggle" class="foot-btn">Debug</button>
+      <button id="btn-change"          class="foot-btn">Station ändern</button>
+      <button id="btn-settings-toggle" class="foot-btn">⚙ Einstellungen</button>
+      <button id="btn-dbg-toggle"      class="foot-btn">Debug</button>
     </div>
 
   </div><!-- /screen-main -->

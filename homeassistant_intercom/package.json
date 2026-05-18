@@ -1,7 +1,7 @@
 {
-  "name": "tablet-intercom",
+  "name": "homeassistant-intercom",
   "version": "1.0.0",
-  "description": "Lokales Audio/Video-Intercom für Android-Tablets",
+  "description": "HomeAssistant InterCom – Lokales Audio/Video-Intercom",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
