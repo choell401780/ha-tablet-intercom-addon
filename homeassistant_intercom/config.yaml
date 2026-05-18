@@ -1,5 +1,5 @@
 name: "HomeAssistant InterCom"
-version: "1.1.0"
+version: "1.1.1"
 slug: "homeassistant_intercom"
 description: "Lokales Audio/Video-Intercom für Android-Tablets – kein Cloud-Dienst erforderlich"
 arch:
