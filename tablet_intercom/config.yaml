@@ -1,5 +1,5 @@
 name: "Tablet Intercom"
-version: "1.0.0"
+version: "1.0.1"
 slug: "tablet_intercom"
 description: "Lokales Audio/Video-Intercom für Android-Tablets – kein Cloud-Dienst erforderlich"
 arch:
