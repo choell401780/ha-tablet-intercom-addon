@@ -1,50 +1,116 @@
 # HomeAssistant InterCom – Home Assistant Add-on
 
-Lokales Audio/Video-Intercom-System für Android-Tablets.  
+Lokales Audio/Video-Intercom-System für Android-Tablets.
 Kein Cloud-Dienst, kein externer Server – läuft vollständig im LAN.
 
-**Stationen:** Büro · Flur · Werkstatt
+**Station und alle Einstellungen werden im HA Add-on-Konfigurationsbereich gesetzt.**
 
 ---
 
 ## Installation
 
-### 1. Repository in Home Assistant hinzufügen
+### 1. Repository hinzufügen
 
 1. **Einstellungen → Add-ons → Add-on Store**
 2. Oben rechts: **⋮ → Repositories**
 3. URL einfügen:
    ```
-   https://github.com/DEIN-USERNAME/ha-tablet-intercom-addon
+   https://github.com/choell401780/ha-tablet-intercom-addon
    ```
 4. **Hinzufügen** → Seite neu laden
 
-### 2. Add-on installieren
+### 2. Add-on installieren & konfigurieren
 
-- Im Add-on Store unter **„HomeAssistant InterCom"** auf **Installieren** klicken
-- Warten bis der Docker-Build abgeschlossen ist (~1–2 Min.)
-
-### 3. Add-on starten
-
-- **Starten** klicken
-- Optional: **„Beim Start ausführen"** aktivieren
-- Im Tab **Protokoll** prüfen:
-  ```
-  [Intercom] Läuft auf http://0.0.0.0:8099
-  ```
-
-### 4. WebUI öffnen
-
-Direkte URL (Browser oder iframe):
-```
-http://HOMEASSISTANT-IP:8099
-```
-
-Oder über den **Seitenleisten-Button** in Home Assistant (wird automatisch eingeblendet).
+- Add-on installieren
+- Reiter **Konfiguration** öffnen
+- Station und Einstellungen setzen (siehe unten)
+- **Starten**
 
 ---
 
-## Kamera-Berechtigung (wichtig!)
+## Add-on-Konfiguration
+
+Alle Einstellungen werden im HA-Backend gesetzt, **nicht** in der Web-Oberfläche.
+
+```yaml
+station_id: "buero"          # Technische ID dieser Station
+station_name: "Büro"         # Anzeigename im Header
+
+available_targets:            # Stationen, die dieses Tablet anrufen kann
+  - id: "flur"
+    name: "Flur"
+  - id: "werkstatt"
+    name: "Werkstatt"
+
+ringtone: "ring1"             # Klingelton: ring1 bis ring5
+speaker_volume: 80            # Standard-Lautstärke 0–100 %
+microphone_gain: 100          # Mikrofon-Verstärkung 0–300 %
+debug: false                  # Debug-Panel in der WebUI einblenden
+```
+
+> Änderungen an der Konfiguration erfordern einen **Neustart** des Add-ons.
+
+---
+
+## Mehrere Tablets – ein Add-on
+
+Ein Add-on-Prozess bedient alle Tablets gleichzeitig als Signaling-Server.
+
+**Option A – Station per iframe-URL** (empfohlen):
+```
+http://HOMEASSISTANT-IP:8099?station=buero     ← Büro-Tablet
+http://HOMEASSISTANT-IP:8099?station=flur      ← Flur-Tablet
+http://HOMEASSISTANT-IP:8099?station=werkstatt ← Werkstatt-Tablet
+```
+Der URL-Parameter `?station=` überschreibt die `station_id` in der Konfiguration.
+Der Anzeigename wird aus `available_targets` ermittelt.
+
+**Option B – Mehrere Add-on-Instanzen** (separater Port je Tablet):
+Jedes Tablet bekommt eine eigene Add-on-Instanz mit unterschiedlichem Port und `station_id`.
+
+---
+
+## Einbindung in Home Assistant
+
+### iframe card (Dashboard)
+
+```yaml
+type: iframe
+url: "http://HOMEASSISTANT-IP:8099?station=buero"
+aspect_ratio: 100%
+allow: "camera; microphone"
+title: Büro
+```
+
+> `allow: "camera; microphone"` ist **Pflicht**, damit Chrome Kamera/Mikro im iframe freigibt.
+
+### panel_iframe (Seitenleiste)
+
+```yaml
+panel_iframe:
+  intercom_buero:
+    title: "Büro"
+    icon: mdi:video
+    url: "http://HOMEASSISTANT-IP:8099?station=buero"
+  intercom_flur:
+    title: "Flur"
+    icon: mdi:video
+    url: "http://HOMEASSISTANT-IP:8099?station=flur"
+```
+
+---
+
+## Was der Benutzer in der WebUI noch selbst einstellen kann
+
+| Einstellung | Wo |
+|---|---|
+| **Lautstärke während eines Gesprächs** | Schieberegler in den Anruf-Steuertasten |
+
+Alle anderen Einstellungen (Station, Klingelton, Gain, Debug) sind **nur im HA-Backend** konfigurierbar.
+
+---
+
+## Kamera-Berechtigung
 
 Android Chrome erlaubt `getUserMedia()` nur in sicheren Kontexten.
 
@@ -54,83 +120,24 @@ Android Chrome erlaubt `getUserMedia()` nur in sicheren Kontexten.
 | `https://HA-IP:8099` | ✅ nach Zertifikatswarnung bestätigen |
 | `http://HA-IP:8099` | ❌ Chrome blockiert Kamera |
 
-**Empfehlung:** Immer über HA Ingress oder HTTPS zugreifen.
-
----
-
-## Einbindung in Home Assistant
-
-### Variante A – iframe card (Dashboard)
-
-Dashboard bearbeiten → **Karte hinzufügen → Webseite**:
-
-```yaml
-type: iframe
-url: http://HOMEASSISTANT-IP:8099
-aspect_ratio: 100%
-allow: "camera; microphone"
-title: Intercom
-```
-
-> `allow: "camera; microphone"` ist zwingend nötig, damit Chrome Kamera/Mikro im iframe erlaubt.
-
-### Variante B – panel_iframe (eigener Menüpunkt)
-
-In `configuration.yaml`:
-
-```yaml
-panel_iframe:
-  homeassistant_intercom:
-    title: HomeAssistant InterCom
-    icon: mdi:video
-    url: http://HOMEASSISTANT-IP:8099
-```
-
-Nach `ha core restart` erscheint „HomeAssistant InterCom" in der Seitenleiste.
-
----
-
-## Bedienung
-
-1. Seite auf jedem Tablet im Browser öffnen
-2. Station auswählen (wird im Browser gespeichert)
-3. Kamera und Mikrofon freigeben
-4. Online-Stationen erscheinen als Schaltflächen
-5. Station antippen → Anruf startet
-6. Gegenstelle nimmt an → WebRTC-Videoverbindung
-7. **Auflegen** beendet den Anruf
+**Empfehlung:** Zugriff über HA Ingress oder HTTPS.
 
 ---
 
 ## Ports
 
-| Port | Protokoll | Verwendung |
-|------|-----------|------------|
-| 8099 | TCP | WebUI & WebSocket Signaling |
-
----
-
-## Technische Details
-
-- **Backend:** Node.js + Express + ws (WebSocket)
-- **Signaling:** WebSocket auf Port 8099
-- **Video/Audio:** WebRTC (Peer-to-Peer im LAN)
-- **Stationsspeicher:** `localStorage` im Browser
-- **Keine Daten** verlassen das lokale Netzwerk
+| Port | Verwendung |
+|---|---|
+| 8099/tcp | WebUI, WebSocket (`/ws`), Config-API (`/api/config`) |
 
 ---
 
 ## Fehlerbehebung
 
-**Kamera wird nicht freigegeben**  
-→ Zugriff über HTTPS oder HA Ingress verwenden
+**Kamera wird nicht freigegeben** → HTTPS oder HA Ingress verwenden
 
-**Station erscheint nicht in der Liste**  
-→ Sicherstellen, dass beide Tablets mit demselben Add-on verbunden sind (gleiche IP/URL)
+**Station erscheint offline** → Beide Tablets müssen dieselbe Add-on-URL verwenden; `available_targets` in der Konfiguration prüfen
 
-**WebRTC verbindet nicht**  
-→ Debug-Panel öffnen (Schaltfläche unten rechts) – ICE-Status prüfen  
-→ Beide Tablets müssen im gleichen LAN sein
+**WebRTC verbindet nicht** → Debug in der Konfiguration auf `true` setzen, Debug-Panel in der WebUI prüfen
 
-**WebSocket trennt sich ständig**  
-→ Proxy-Timeout prüfen (bei Nginx/HA Ingress ggf. `proxy_read_timeout` erhöhen)
+**Konfiguration nicht übernommen** → Add-on neu starten nach Konfigurationsänderung

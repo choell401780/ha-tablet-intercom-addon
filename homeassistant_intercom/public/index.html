@@ -9,34 +9,13 @@
 </head>
 <body>
 
-  <!-- ═══════════ SETUP SCREEN ═══════════ -->
-  <div id="screen-setup" class="screen active">
-    <div class="setup-card">
-      <div class="logo">📞</div>
-      <h1>HomeAssistant InterCom</h1>
-      <p>Welche Station ist dieses Tablet?</p>
-      <div class="setup-list">
-        <button class="btn-pick" data-id="buero">
-          <span class="pick-icon">🏢</span> Büro
-        </button>
-        <button class="btn-pick" data-id="flur">
-          <span class="pick-icon">🚪</span> Flur
-        </button>
-        <button class="btn-pick" data-id="werkstatt">
-          <span class="pick-icon">🔧</span> Werkstatt
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- ═══════════ MAIN SCREEN ═══════════ -->
-  <div id="screen-main" class="screen">
+  <div id="screen-main" class="screen active">
 
     <!-- Header -->
-    <header id="header">
+    <header>
       <div class="hdr-left">
-        <span id="lbl-station"></span>
-        <span id="lbl-status" class="hdr-sub">…</span>
+        <span id="lbl-station">HomeAssistant InterCom</span>
+        <span id="lbl-status" class="hdr-sub">Lade Konfiguration…</span>
       </div>
       <div class="hdr-right">
         <div id="dot-ws" class="dot dot-off" title="WebSocket"></div>
@@ -46,21 +25,17 @@
     <!-- Video -->
     <div id="video-area">
       <video id="vid-remote" autoplay playsinline></video>
-
       <div id="vid-placeholder">
         <div class="ph-icon">📺</div>
         <div class="ph-text">Kein eingehendes Bild</div>
       </div>
-
       <video id="vid-local" autoplay playsinline muted></video>
-
-      <!-- Calling/Ringing overlay -->
       <div id="overlay-call" class="call-overlay hidden">
         <span id="overlay-text"></span>
       </div>
     </div>
 
-    <!-- Incoming call -->
+    <!-- Incoming call banner -->
     <div id="banner-incoming" class="banner banner-incoming hidden">
       <div class="banner-info">
         <div class="ring-dot"></div>
@@ -77,10 +52,10 @@
       <span id="lbl-busy"></span>
     </div>
 
-    <!-- Station buttons -->
+    <!-- Station call buttons (populated from /api/config) -->
     <div id="panel-stations">
       <div class="panel-label">Anrufen:</div>
-      <div id="station-list"></div>
+      <div id="station-list"><span class="no-stations">Lade…</span></div>
     </div>
 
     <!-- Active call controls -->
@@ -91,58 +66,28 @@
       <button id="btn-cam" class="ctrl-btn">
         <span class="ci">📷</span><span class="cl">Kamera aus</span>
       </button>
+      <div class="vol-row">
+        <span class="vol-icon">🔊</span>
+        <input type="range" id="vol-slider" class="vol-slider" min="0" max="100" value="80">
+      </div>
       <button id="btn-hangup" class="ctrl-btn ctrl-red">
         <span class="ci">📵</span><span class="cl">Auflegen</span>
       </button>
     </div>
 
-    <!-- Settings panel -->
-    <div id="panel-settings" class="hidden">
-
-      <div class="s-group">
-        <div class="s-label">🔔 Klingelton</div>
-        <div class="ring-list">
-          <label class="ring-item"><input type="radio" name="ringtone" value="ring1"><span>Ton 1</span></label>
-          <label class="ring-item"><input type="radio" name="ringtone" value="ring2"><span>Ton 2</span></label>
-          <label class="ring-item"><input type="radio" name="ringtone" value="ring3"><span>Ton 3</span></label>
-          <label class="ring-item"><input type="radio" name="ringtone" value="ring4"><span>Ton 4</span></label>
-          <label class="ring-item"><input type="radio" name="ringtone" value="ring5"><span>Ton 5</span></label>
-        </div>
-        <button id="btn-ring-test" class="s-btn">▶ Testen</button>
-      </div>
-
-      <div class="s-group">
-        <div class="s-label">🔊 Lautsprecher <span id="vol-pct" class="s-val">70%</span></div>
-        <input type="range" id="vol-slider" class="s-range" min="0" max="100" value="70">
-      </div>
-
-      <div class="s-group">
-        <div class="s-label">🎙 Mikrofon-Gain <span id="gain-pct" class="s-val">100%</span></div>
-        <input type="range" id="gain-slider" class="s-range" min="0" max="300" value="100">
-      </div>
-
-    </div>
-
     <!-- Status bar -->
     <div id="statusbar">Initialisiere…</div>
 
-    <!-- Debug -->
+    <!-- Debug panel – only visible when debug: true in add-on config -->
     <div id="debug-panel" class="hidden">
       <div class="dbg-hdr">
-        <span>Debug</span>
+        <span>Debug – HomeAssistant InterCom</span>
         <button id="btn-dbg-clear">Leeren</button>
       </div>
       <div id="dbg-log"></div>
     </div>
 
-    <!-- Footer -->
-    <div id="footer">
-      <button id="btn-change"          class="foot-btn">Station ändern</button>
-      <button id="btn-settings-toggle" class="foot-btn">⚙ Einstellungen</button>
-      <button id="btn-dbg-toggle"      class="foot-btn">Debug</button>
-    </div>
-
-  </div><!-- /screen-main -->
+  </div>
 
   <script src="app.js"></script>
 </body>

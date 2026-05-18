@@ -1,13 +1,45 @@
 'use strict';
 
-const express = require('express');
-const http    = require('http');
+const express   = require('express');
+const http      = require('http');
 const WebSocket = require('ws');
-const path    = require('path');
+const path      = require('path');
+const fs        = require('fs');
 
-const PORT = parseInt(process.env.PORT || '8099', 10);
+const PORT         = parseInt(process.env.PORT || '8099', 10);
+const OPTIONS_FILE = '/data/options.json';
+
+// ─── Add-on configuration ─────────────────────────────────────────────────────
+
+const DEFAULTS = {
+  station_id:        'buero',
+  station_name:      'Büro',
+  available_targets: [
+    { id: 'flur',      name: 'Flur'      },
+    { id: 'werkstatt', name: 'Werkstatt' },
+  ],
+  ringtone:          'ring1',
+  speaker_volume:    80,
+  microphone_gain:   100,
+  debug:             false,
+};
+
+function loadOptions() {
+  try {
+    const raw  = fs.readFileSync(OPTIONS_FILE, 'utf8');
+    const data = JSON.parse(raw);
+    return { ...DEFAULTS, ...data };
+  } catch {
+    console.log(`[InterCom] ${OPTIONS_FILE} nicht gefunden – verwende Standardwerte`);
+    return { ...DEFAULTS };
+  }
+}
+
+const options = loadOptions();
+console.log(`[InterCom] Konfiguration: station="${options.station_id}" debug=${options.debug}`);
 
 // ─── Express ──────────────────────────────────────────────────────────────────
+
 const app    = express();
 const server = http.createServer(app);
 
@@ -18,21 +50,24 @@ app.get('/health', (_req, res) => {
     status:   'ok',
     uptime:   Math.floor(process.uptime()),
     stations: [...stations.entries()].map(([id, s]) => ({
-      id,
-      name:   s.name,
-      inCall: s.inCall,
+      id, name: s.name, inCall: s.inCall,
     })),
   });
 });
 
-// SPA fallback – needed for HA Ingress sub-paths
+// Config API – read by the frontend on startup
+app.get('/api/config', (_req, res) => {
+  res.json(options);
+});
+
+// SPA fallback – required for HA Ingress sub-paths
 app.get('*', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ─── WebSocket ────────────────────────────────────────────────────────────────
-// noServer + explicit upgrade handler so HA Ingress can proxy /ws on any sub-path.
-// HA strips its ingress prefix before forwarding, so the backend always sees /ws.
+// noServer + explicit upgrade handler: HA Ingress strips its prefix before
+// forwarding, so the backend always receives the connection on /ws.
 const wss = new WebSocket.Server({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
@@ -48,21 +83,19 @@ server.on('upgrade', (req, socket, head) => {
 // Map<stationId, { ws, name, inCall }>
 const stations = new Map();
 
-const LABELS = {
-  buero:     'Büro',
-  flur:      'Flur',
-  werkstatt: 'Werkstatt',
-};
+function stationLabel(id) {
+  // Prefer name from configured targets, fall back to built-in labels or id
+  const t = options.available_targets?.find((x) => x.id === id);
+  if (t) return t.name;
+  const builtIn = { buero: 'Büro', flur: 'Flur', werkstatt: 'Werkstatt' };
+  return builtIn[id] ?? id;
+}
 
-function ts()  { return new Date().toLocaleTimeString('de-DE'); }
-function log(id, msg) { console.log(`[${ts()}] [${id ?? '-'}] ${msg}`); }
+function ts()           { return new Date().toLocaleTimeString('de-DE'); }
+function log(id, msg)   { console.log(`[${ts()}] [${id ?? '-'}] ${msg}`); }
 
 function broadcastStations() {
-  const list = [...stations.entries()].map(([id, s]) => ({
-    id,
-    name:   s.name,
-    inCall: s.inCall,
-  }));
+  const list    = [...stations.entries()].map(([id, s]) => ({ id, name: s.name, inCall: s.inCall }));
   const payload = JSON.stringify({ type: 'stations', stations: list });
   for (const [, s] of stations) {
     if (s.ws.readyState === WebSocket.OPEN) s.ws.send(payload);
@@ -74,10 +107,7 @@ function relay(fromId, msg) {
   if (!target || target.ws.readyState !== WebSocket.OPEN) {
     const sender = stations.get(fromId);
     if (sender?.ws.readyState === WebSocket.OPEN) {
-      sender.ws.send(JSON.stringify({
-        type:    'error',
-        message: `${LABELS[msg.to] ?? msg.to} ist nicht erreichbar`,
-      }));
+      sender.ws.send(JSON.stringify({ type: 'error', message: `${stationLabel(msg.to)} ist nicht erreichbar` }));
     }
     return;
   }
@@ -95,16 +125,17 @@ wss.on('connection', (ws) => {
     switch (msg.type) {
 
       case 'register': {
-        // Evict old session for same station
         const old = stations.get(msg.station);
         if (old && old.ws !== ws && old.ws.readyState === WebSocket.OPEN) {
           old.ws.send(JSON.stringify({ type: 'replaced' }));
           old.ws.close();
         }
         id = msg.station;
-        stations.set(id, { ws, name: LABELS[id] ?? id, inCall: false });
-        log(id, 'registriert');
-        ws.send(JSON.stringify({ type: 'registered', station: id, name: LABELS[id] ?? id }));
+        // Accept the display name sent by the client (comes from config), fall back to label
+        const name = msg.name || stationLabel(id);
+        stations.set(id, { ws, name, inCall: false });
+        log(id, `registriert als "${name}"`);
+        ws.send(JSON.stringify({ type: 'registered', station: id, name }));
         broadcastStations();
         break;
       }
@@ -113,7 +144,7 @@ wss.on('connection', (ws) => {
         if (!id) return;
         const target = stations.get(msg.to);
         if (!target) {
-          ws.send(JSON.stringify({ type: 'error', message: `${LABELS[msg.to] ?? msg.to} ist offline` }));
+          ws.send(JSON.stringify({ type: 'error', message: `${stationLabel(msg.to)} ist offline` }));
           return;
         }
         if (target.inCall) {
@@ -174,7 +205,7 @@ wss.on('connection', (ws) => {
 // ─── Start ────────────────────────────────────────────────────────────────────
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[InterCom] Läuft auf http://0.0.0.0:${PORT}`);
-  console.log(`[InterCom] Health: http://0.0.0.0:${PORT}/health`);
+  console.log(`[InterCom] Config-API: http://0.0.0.0:${PORT}/api/config`);
 });
 
 process.on('SIGTERM', () => server.close(() => process.exit(0)));

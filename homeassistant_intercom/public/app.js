@@ -2,35 +2,36 @@
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const LABELS = { buero: 'Büro', flur: 'Flur', werkstatt: 'Werkstatt' };
-const label  = (id) => LABELS[id] ?? id;
-
 const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 const S = Object.freeze({
-  SETUP: 'setup', IDLE: 'idle', CALLING: 'calling', RINGING: 'ringing', INCALL: 'in_call',
+  IDLE: 'idle', CALLING: 'calling', RINGING: 'ringing', INCALL: 'in_call',
 });
 
 const RING_TIMEOUT_MS = 30_000;
 
 // ─── App state ────────────────────────────────────────────────────────────────
 
-let state        = S.SETUP;
-let myStation    = null;
+let state             = S.IDLE;
+let myStation         = null;    // station id (string)
+let myStationName     = null;    // display name
+let configuredTargets = [];      // [{id, name}] – from /api/config
+let configuredRingtone = 'ring1';
+let debugEnabled      = false;
+
 let ws           = null;
 let wsTimer      = null;
-let localStream  = null;   // raw stream from getUserMedia (used for local preview)
-let txStream     = null;   // stream sent over WebRTC (may have processed audio)
+let localStream  = null;   // raw stream – used for local video preview
+let txStream     = null;   // processed stream – sent over WebRTC (has mic gain applied)
 let pc           = null;   // RTCPeerConnection
-let peer         = null;
+let peer         = null;   // current partner station id
 let isCaller     = false;
 let muted        = false;
 let camOff       = false;
 let iceBuf       = [];
-let ringTimer    = null;   // auto-reject timeout while ringing
+let ringTimer    = null;
 
-// Web Audio API for mic gain
-let audioCtx     = null;
+// Web Audio API mic gain
 let micGainNode  = null;
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
@@ -38,18 +39,12 @@ let micGainNode  = null;
 const $  = (id) => document.getElementById(id);
 const on = (id, ev, fn) => $(id).addEventListener(ev, fn);
 
-const screenSetup = $('screen-setup');
-const screenMain  = $('screen-main');
-const vidRemote   = $('vid-remote');
-const vidLocal    = $('vid-local');
+const vidRemote = $('vid-remote');
+const vidLocal  = $('vid-local');
+const volSlider = $('vol-slider');
 
-function showScreen(name) {
-  screenSetup.classList.toggle('active', name === 'setup');
-  screenMain.classList.toggle('active', name === 'main');
-}
-
-function setStatus(msg)  { $('statusbar').textContent    = msg; }
-function setHdrSub(msg)  { $('lbl-status').textContent   = msg; }
+function setStatus(msg)  { $('statusbar').textContent  = msg; }
+function setHdrSub(msg)  { $('lbl-status').textContent = msg; }
 function showOverlay(t)  { $('overlay-text').textContent = t; $('overlay-call').classList.remove('hidden'); }
 function hideOverlay()   { $('overlay-call').classList.add('hidden'); }
 
@@ -61,13 +56,13 @@ function showBusy(msg) {
 
 // ─── Ringtone (Web Audio API synthesis) ──────────────────────────────────────
 
-// Each pattern: array of [frequency_hz, duration_s] — 0 Hz = silence
+// Patterns: array of [frequency_hz, duration_s] — 0 Hz = silence
 const RING_PATTERNS = {
-  ring1: [[880, 0.15], [0, 0.08], [880, 0.15], [0, 0.72]],   // Doppelton klassisch
+  ring1: [[880, 0.15], [0, 0.08], [880, 0.15], [0, 0.72]],   // Doppelton
   ring2: [[440, 0.70], [0, 0.50]],                             // Einzelton lang
-  ring3: [[1047, 0.07],[0, 0.04],[1047, 0.07],[0, 0.04],[1047, 0.07],[0, 0.58]], // Dreifach
-  ring4: [[880, 0.18],[660, 0.18],[440, 0.36],[0, 0.38]],      // Absteigend
-  ring5: [[440, 0.18],[660, 0.18],[880, 0.36],[0, 0.38]],      // Aufsteigend
+  ring3: [[1047,0.07], [0, 0.04],[1047,0.07],[0,0.04],[1047,0.07],[0,0.58]], // Dreifach
+  ring4: [[880, 0.18], [660, 0.18],[440, 0.36],[0, 0.38]],    // Absteigend
+  ring5: [[440, 0.18], [660, 0.18],[880, 0.36],[0, 0.38]],    // Aufsteigend
 };
 
 const ring = (() => {
@@ -85,9 +80,8 @@ const ring = (() => {
     if (!_active) return;
     const ctx = _ac();
     const seq = RING_PATTERNS[pattern] || RING_PATTERNS.ring1;
-    let t     = ctx.currentTime + 0.01;
+    let   t   = ctx.currentTime + 0.01;
     let total = 0;
-
     seq.forEach(([freq, dur]) => {
       if (freq > 0) {
         const osc  = ctx.createOscillator();
@@ -104,7 +98,6 @@ const ring = (() => {
       t     += dur;
       total += dur;
     });
-
     _loop = setTimeout(() => _play(pattern), total * 1000);
   }
 
@@ -112,53 +105,26 @@ const ring = (() => {
     start(pattern) {
       if (_active) return;
       _active = true;
-      _play(pattern || selectedRing());
+      _play(pattern || 'ring1');
     },
     stop() {
       _active = false;
       if (_loop) { clearTimeout(_loop); _loop = null; }
     },
-    test(pattern) {
-      const ctx = _ac();
-      const seq = RING_PATTERNS[pattern] || RING_PATTERNS.ring1;
-      let t = ctx.currentTime + 0.01;
-      seq.forEach(([freq, dur]) => {
-        if (freq > 0) {
-          const osc  = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          gain.gain.setValueAtTime(0.45, t);
-          gain.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.88);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(t);
-          osc.stop(t + dur);
-        }
-        t += dur;
-      });
-    },
-    // Pre-warm AudioContext after first user gesture
-    unlock() { _ac(); },
+    unlock() { try { _ac(); } catch { /* ignored */ } },
   };
 })();
 
-// Unlock AudioContext on first user interaction (required by Chrome autoplay policy)
+// Unlock AudioContext after first user gesture (Chrome autoplay policy)
 document.addEventListener('click',      () => ring.unlock(), { once: true });
 document.addEventListener('touchstart', () => ring.unlock(), { once: true });
 
-// ─── Ring selection helper ────────────────────────────────────────────────────
-
-function selectedRing() {
-  return localStorage.getItem('intercom-ring') || 'ring1';
-}
-
-// ─── Ringtone timeout helpers ─────────────────────────────────────────────────
+// ─── Ring timeout ─────────────────────────────────────────────────────────────
 
 function startRingTimeout() {
   clearRingTimeout();
   ringTimer = setTimeout(() => {
-    dbg('Klingelton-Timeout – Anruf automatisch abgelehnt');
+    dbg('Klingelton-Timeout – Anruf abgewiesen');
     dismissIncoming();
     if (peer) send({ type: 'call-rejected', to: peer });
     peer = null;
@@ -177,55 +143,89 @@ function dismissIncoming() {
   $('banner-incoming').classList.add('hidden');
 }
 
-// ─── Volume helpers ───────────────────────────────────────────────────────────
+// ─── Volume ───────────────────────────────────────────────────────────────────
 
 function applyVolume(val) {
   vidRemote.volume = Math.max(0, Math.min(1, val / 100));
 }
 
-function savedVolume() {
-  return parseInt(localStorage.getItem('intercom-vol') ?? '70', 10);
-}
+// ─── Config loading ───────────────────────────────────────────────────────────
 
-// ─── Setup screen ─────────────────────────────────────────────────────────────
-
-document.querySelectorAll('.btn-pick').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    ring.unlock();
-    myStation = btn.dataset.id;
-    localStorage.setItem('intercom-station', myStation);
-    boot();
-  });
-});
-
-on('btn-change', 'click', () => {
-  localStorage.removeItem('intercom-station');
-  location.reload();
-});
-
-const saved = localStorage.getItem('intercom-station');
-if (saved) {
-  myStation = saved;
-  boot();
-} else {
-  showScreen('setup');
+async function loadConfig() {
+  try {
+    const r = await fetch('api/config');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } catch (e) {
+    console.error(`[InterCom] Config-Fehler: ${e.message}`);
+    // Safe fallback so the app still starts
+    return {
+      station_id:        'buero',
+      station_name:      'Büro',
+      available_targets: [],
+      ringtone:          'ring1',
+      speaker_volume:    80,
+      microphone_gain:   100,
+      debug:             false,
+    };
+  }
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
-async function boot() {
-  showScreen('main');
-  $('lbl-station').textContent = label(myStation);
+(async function boot() {
+  const cfg = await loadConfig();
+
+  // Station: URL param ?station=XXX overrides config.station_id
+  // This allows one add-on to serve all tablets via different iframe URLs.
+  const urlStation = new URLSearchParams(window.location.search).get('station');
+  if (urlStation) {
+    myStation     = urlStation;
+    const match   = (cfg.available_targets ?? []).find((t) => t.id === urlStation);
+    myStationName = match ? match.name : urlStation;
+  } else {
+    myStation     = cfg.station_id;
+    myStationName = cfg.station_name;
+  }
+
+  // Apply config values
+  configuredRingtone = cfg.ringtone  ?? 'ring1';
+  configuredTargets  = (cfg.available_targets ?? []).filter((t) => t.id !== myStation);
+  debugEnabled       = cfg.debug === true;
+
+  // Volume: config default, but allow per-session localStorage adjustment
+  const sessVol = localStorage.getItem('intercom-vol-session');
+  const initVol = sessVol !== null ? parseInt(sessVol, 10) : (cfg.speaker_volume ?? 80);
+  volSlider.value = initVol;
+  applyVolume(initVol);
+
+  // Show debug panel only if enabled in add-on config
+  if (debugEnabled) $('debug-panel').classList.remove('hidden');
+
+  $('lbl-station').textContent = myStationName;
+  renderStations([]);   // show configured targets as offline until WS connects
   setState(S.IDLE);
   setStatus('Kamera wird gestartet…');
-  initSettings();
-  await initMedia();
+
+  dbg(`Station: ${myStation} (${myStationName})`);
+  dbg(`Ziele: ${configuredTargets.map((t) => t.id).join(', ') || '–'}`);
+  dbg(`Klingelton: ${configuredRingtone} | Lautstärke: ${initVol}% | Gain: ${cfg.microphone_gain}%`);
+
+  await initMedia(cfg.microphone_gain ?? 100);
   openWs();
-}
+})();
+
+// ─── Volume slider (in call controls) ────────────────────────────────────────
+
+volSlider.addEventListener('input', () => {
+  const v = parseInt(volSlider.value, 10);
+  applyVolume(v);
+  localStorage.setItem('intercom-vol-session', v);
+});
 
 // ─── Media init ───────────────────────────────────────────────────────────────
 
-async function initMedia() {
+async function initMedia(micGainPct) {
   const tries = [
     { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: true },
     { video: true,  audio: true  },
@@ -236,13 +236,11 @@ async function initMedia() {
     try {
       localStream = await navigator.mediaDevices.getUserMedia(c);
       vidLocal.srcObject = localStream;
-      const v = localStream.getVideoTracks().length > 0;
-      const a = localStream.getAudioTracks().length > 0;
-      dbg(`Media OK – video:${v} audio:${a}`);
-      txStream = await setupMicGain(localStream);
+      dbg(`Media OK – video:${localStream.getVideoTracks().length > 0} audio:${localStream.getAudioTracks().length > 0}`);
+      txStream = await setupMicGain(localStream, micGainPct);
       return;
     } catch (e) {
-      dbg(`getUserMedia fehlgeschlagen: ${e.message}`, 'warn');
+      dbg(`getUserMedia: ${e.message}`, 'warn');
     }
   }
   setStatus('⚠️ Kamera/Mikrofon nicht verfügbar');
@@ -251,17 +249,17 @@ async function initMedia() {
 
 // ─── Mic Gain (Web Audio API) ─────────────────────────────────────────────────
 
-async function setupMicGain(stream) {
+async function setupMicGain(stream, gainPct = 100) {
   if (!stream?.getAudioTracks().length) return stream;
   try {
-    audioCtx    = new (window.AudioContext || window.webkitAudioContext)();
-    const src   = audioCtx.createMediaStreamSource(stream);
-    micGainNode = audioCtx.createGain();
-    micGainNode.gain.value = savedGain() / 100;
-    const dst   = audioCtx.createMediaStreamDestination();
+    const ctx   = new (window.AudioContext || window.webkitAudioContext)();
+    const src   = ctx.createMediaStreamSource(stream);
+    micGainNode = ctx.createGain();
+    micGainNode.gain.value = gainPct / 100;
+    const dst   = ctx.createMediaStreamDestination();
     src.connect(micGainNode);
     micGainNode.connect(dst);
-    dbg(`Mic Gain: ${micGainNode.gain.value.toFixed(2)}`);
+    dbg(`Mic Gain: ${(gainPct / 100).toFixed(2)}`);
     return new MediaStream([
       ...stream.getVideoTracks(),
       ...dst.stream.getAudioTracks(),
@@ -270,15 +268,6 @@ async function setupMicGain(stream) {
     dbg(`Mic-Gain-Setup übersprungen: ${e.message}`, 'warn');
     return stream;
   }
-}
-
-function savedGain() {
-  return parseInt(localStorage.getItem('intercom-mic-gain') ?? '100', 10);
-}
-
-function applyGain(val) {
-  if (micGainNode) micGainNode.gain.value = val / 100;
-  localStorage.setItem('intercom-mic-gain', val);
 }
 
 // ─── WebSocket ────────────────────────────────────────────────────────────────
@@ -292,7 +281,6 @@ function openWs() {
   const url      = `${prot}//${loc.host}${basePath}/ws`;
 
   dbg(`href:     ${loc.href}`);
-  dbg(`pathname: ${loc.pathname}`);
   dbg(`basePath: ${basePath || '/'}`);
   dbg(`WS URL:   ${url}`);
   setStatus('Verbinde…');
@@ -308,7 +296,8 @@ function openWs() {
   ws.onopen = () => {
     $('dot-ws').className = 'dot dot-on';
     dbg('WS verbunden');
-    ws.send(JSON.stringify({ type: 'register', station: myStation }));
+    // Send station name so server can display it correctly
+    ws.send(JSON.stringify({ type: 'register', station: myStation, name: myStationName }));
   };
 
   ws.onclose = () => {
@@ -339,7 +328,7 @@ function send(obj) {
 // ─── Signaling ────────────────────────────────────────────────────────────────
 
 async function onSignal(m) {
-  dbg(`← ${m.type}${m.from ? ' / ' + label(m.from) : ''}`, 'recv');
+  dbg(`← ${m.type}${m.from ? ' / ' + m.from : ''}`, 'recv');
 
   switch (m.type) {
 
@@ -354,13 +343,13 @@ async function onSignal(m) {
 
     case 'call-request':
       if (state !== S.IDLE) { send({ type: 'busy', to: m.from }); return; }
-      peer    = m.from;
+      peer     = m.from;
       isCaller = false;
       setState(S.RINGING);
-      $('lbl-caller').textContent = label(m.from);
+      $('lbl-caller').textContent = nameOf(m.from, m.stations);
       $('banner-incoming').classList.remove('hidden');
-      setStatus(`Eingehender Anruf von ${label(m.from)}`);
-      ring.start();
+      setStatus(`Eingehender Anruf von ${nameOf(m.from)}`);
+      ring.start(configuredRingtone);
       startRingTimeout();
       break;
 
@@ -368,27 +357,22 @@ async function onSignal(m) {
       if (state !== S.CALLING) return;
       peer = m.from;
       setState(S.INCALL);
-      $('banner-incoming').classList.add('hidden');
       hideOverlay();
       showControls();
-      setStatus(`Verbinde mit ${label(peer)}…`);
+      setStatus(`Verbinde mit ${nameOf(peer)}…`);
       await startAsCaller();
       break;
 
     case 'call-rejected':
       if (state === S.CALLING) {
-        setState(S.IDLE);
-        setStatus(`${label(m.from)} hat abgelehnt`);
-        hideOverlay();
-        peer = null;
+        setState(S.IDLE); hideOverlay(); peer = null;
+        setStatus(`${nameOf(m.from)} hat abgelehnt`);
       }
       break;
 
     case 'busy':
-      setState(S.IDLE);
-      showBusy(`${label(m.from)} ist besetzt`);
-      hideOverlay();
-      peer = null;
+      setState(S.IDLE); hideOverlay(); peer = null;
+      showBusy(`${nameOf(m.from)} ist besetzt`);
       break;
 
     case 'offer':
@@ -404,9 +388,8 @@ async function onSignal(m) {
       break;
 
     case 'call-ended':
-      // Stop ring in case caller hung up while callee was still ringing
       dismissIncoming();
-      setStatus(`${label(m.from)} hat aufgelegt`);
+      setStatus(`${nameOf(m.from)} hat aufgelegt`);
       hangup(false);
       break;
 
@@ -418,34 +401,45 @@ async function onSignal(m) {
       setStatus(`Fehler: ${m.message}`);
       dbg(`Server: ${m.message}`, 'error');
       if (state === S.CALLING || state === S.RINGING) {
-        dismissIncoming();
-        setState(S.IDLE); hideOverlay(); peer = null;
+        dismissIncoming(); setState(S.IDLE); hideOverlay(); peer = null;
       }
       break;
   }
 }
 
 // ─── Station list ─────────────────────────────────────────────────────────────
+// Shows configured targets with live online/busy status from WebSocket.
 
-function renderStations(list) {
+function renderStations(liveList) {
   const el     = $('station-list');
   el.innerHTML = '';
-  const others = list.filter((s) => s.id !== myStation);
 
-  if (others.length === 0) {
-    el.innerHTML = '<span class="no-stations">Keine anderen Stationen online</span>';
+  if (configuredTargets.length === 0) {
+    el.innerHTML = '<span class="no-stations">Keine Ziele konfiguriert</span>';
     return;
   }
 
-  others.forEach((s) => {
+  const liveMap = new Map(liveList.map((s) => [s.id, s]));
+
+  configuredTargets.forEach((target) => {
+    const live     = liveMap.get(target.id);
+    const isOnline = !!live;
+    const isBusy   = live?.inCall === true;
+
     const btn = document.createElement('button');
-    btn.className  = 'btn-call' + (s.inCall ? ' is-busy' : '');
-    btn.disabled   = (state !== S.IDLE);
-    btn.dataset.id = s.id;
-    btn.innerHTML  = `<span>${s.inCall ? '🔴' : '📞'}</span><span>${s.name}</span>`;
-    btn.addEventListener('click', () => call(s.id));
+    btn.className  = 'btn-call' + (!isOnline ? ' is-offline' : isBusy ? ' is-busy' : '');
+    btn.disabled   = state !== S.IDLE || !isOnline;
+    btn.dataset.id = target.id;
+
+    const icon = !isOnline ? '⚫' : isBusy ? '🔴' : '📞';
+    btn.innerHTML = `<span>${icon}</span><span>${target.name}</span>`;
+    if (isOnline) btn.addEventListener('click', () => call(target.id));
     el.appendChild(btn);
   });
+}
+
+function nameOf(id) {
+  return configuredTargets.find((t) => t.id === id)?.name ?? id;
 }
 
 // ─── Outgoing call ────────────────────────────────────────────────────────────
@@ -455,8 +449,8 @@ function call(targetId) {
   peer     = targetId;
   isCaller = true;
   setState(S.CALLING);
-  showOverlay(`Rufe ${label(targetId)} an…`);
-  setStatus(`Wähle ${label(targetId)}…`);
+  showOverlay(`Rufe ${nameOf(targetId)} an…`);
+  setStatus(`Wähle ${nameOf(targetId)}…`);
   send({ type: 'call-request', to: targetId });
 }
 
@@ -467,7 +461,7 @@ on('btn-accept', 'click', () => {
   send({ type: 'call-accepted', to: peer });
   setState(S.INCALL);
   showControls();
-  setStatus(`Gespräch mit ${label(peer)} aktiv`);
+  setStatus(`Gespräch mit ${nameOf(peer)} aktiv`);
 });
 
 on('btn-reject', 'click', () => {
@@ -484,7 +478,6 @@ async function startAsCaller() {
   pc = makePc();
   const stream = txStream || localStream;
   if (stream) stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
   const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
   await pc.setLocalDescription(offer);
   send({ type: 'offer', to: peer, sdp: pc.localDescription });
@@ -497,10 +490,8 @@ async function onOffer(m) {
   pc = makePc();
   const stream = txStream || localStream;
   if (stream) stream.getTracks().forEach((t) => pc.addTrack(t, stream));
-
   await pc.setRemoteDescription(new RTCSessionDescription(m.sdp));
   await flushIceBuf();
-
   const answer = await pc.createAnswer();
   await pc.setLocalDescription(answer);
   send({ type: 'answer', to: m.from, sdp: pc.localDescription });
@@ -510,8 +501,8 @@ async function onOffer(m) {
 async function onAnswer(m) {
   if (!pc) return;
   await pc.setRemoteDescription(new RTCSessionDescription(m.sdp));
-  dbg('Remote SDP gesetzt');
   await flushIceBuf();
+  dbg('Remote SDP gesetzt');
 }
 
 async function onIce(m) {
@@ -541,7 +532,7 @@ function makePc() {
     dbg('Remote Track empfangen');
     if (vidRemote.srcObject !== streams[0]) {
       vidRemote.srcObject = streams[0];
-      vidRemote.volume    = savedVolume() / 100;
+      vidRemote.volume    = parseInt(volSlider.value, 10) / 100;
       $('vid-placeholder').classList.add('hidden');
     }
   };
@@ -549,8 +540,8 @@ function makePc() {
   conn.oniceconnectionstatechange = () => {
     dbg(`ICE: ${conn.iceConnectionState}`);
     if (conn.iceConnectionState === 'connected' || conn.iceConnectionState === 'completed') {
-      setStatus(`Verbunden mit ${label(peer)}`);
-      setHdrSub(`Gespräch: ${label(peer)}`);
+      setStatus(`Verbunden mit ${nameOf(peer)}`);
+      setHdrSub(`Gespräch: ${nameOf(peer)}`);
       hideOverlay();
     } else if (conn.iceConnectionState === 'failed') {
       setStatus('Verbindung fehlgeschlagen');
@@ -570,37 +561,28 @@ on('btn-hangup', 'click', () => hangup(true));
 
 function hangup(notify) {
   if (notify && peer) send({ type: 'call-ended', to: peer });
-
   dismissIncoming();
-
   if (pc) { pc.close(); pc = null; }
   iceBuf = [];
-
   vidRemote.srcObject = null;
   $('vid-placeholder').classList.remove('hidden');
   $('panel-controls').classList.add('hidden');
   hideOverlay();
-
   peer = null; isCaller = false; muted = false; camOff = false;
   syncMuteBtn(); syncCamBtn();
-
   setState(S.IDLE);
   setStatus('Online – bereit');
   setHdrSub('Online');
 }
 
-// ─── Call controls ────────────────────────────────────────────────────────────
+// ─── Mute / Camera ────────────────────────────────────────────────────────────
 
 function showControls() { $('panel-controls').classList.remove('hidden'); }
 
 on('btn-mute', 'click', () => {
   muted = !muted;
-  // Mute raw localStream audio tracks so the toggle always works regardless of gain pipeline
   localStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
-  // Also mute the gain-processed stream tracks if present
-  if (txStream && txStream !== localStream) {
-    txStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
-  }
+  if (txStream && txStream !== localStream) txStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
   syncMuteBtn();
   dbg(`Mikrofon: ${muted ? 'stumm' : 'aktiv'}`);
 });
@@ -615,7 +597,7 @@ on('btn-cam', 'click', () => {
 function syncMuteBtn() {
   const b = $('btn-mute');
   b.querySelector('.ci').textContent = muted ? '🔇' : '🎤';
-  b.querySelector('.cl').textContent = muted ? 'Ton an'  : 'Stumm';
+  b.querySelector('.cl').textContent = muted ? 'Ton an'   : 'Stumm';
   b.classList.toggle('ctrl-active', muted);
 }
 
@@ -626,72 +608,25 @@ function syncCamBtn() {
   b.classList.toggle('ctrl-active', camOff);
 }
 
-// ─── Settings panel ───────────────────────────────────────────────────────────
-
-function initSettings() {
-  // Ring selection
-  const savedR = selectedRing();
-  document.querySelectorAll('input[name="ringtone"]').forEach((radio) => {
-    radio.checked = (radio.value === savedR);
-    radio.addEventListener('change', () => {
-      localStorage.setItem('intercom-ring', radio.value);
-    });
-  });
-
-  // Ring test button
-  on('btn-ring-test', 'click', () => ring.test(selectedRing()));
-
-  // Volume slider
-  const volSlider = $('vol-slider');
-  const volPct    = $('vol-pct');
-  volSlider.value = savedVolume();
-  volPct.textContent = `${volSlider.value}%`;
-  applyVolume(parseInt(volSlider.value, 10));
-
-  volSlider.addEventListener('input', () => {
-    const v = parseInt(volSlider.value, 10);
-    volPct.textContent = `${v}%`;
-    applyVolume(v);
-    localStorage.setItem('intercom-vol', v);
-  });
-
-  // Gain slider
-  const gainSlider = $('gain-slider');
-  const gainPct    = $('gain-pct');
-  gainSlider.value = savedGain();
-  gainPct.textContent = `${gainSlider.value}%`;
-
-  gainSlider.addEventListener('input', () => {
-    const v = parseInt(gainSlider.value, 10);
-    gainPct.textContent = `${v}%`;
-    applyGain(v);
-    dbg(`Mic Gain: ${(v / 100).toFixed(2)}`);
-  });
-
-  // Settings toggle
-  on('btn-settings-toggle', 'click', () => {
-    const p = $('panel-settings');
-    p.classList.toggle('hidden');
-    $('btn-settings-toggle').classList.toggle('foot-active', !p.classList.contains('hidden'));
-  });
-}
-
 // ─── State machine ────────────────────────────────────────────────────────────
 
 function setState(next) {
   state = next;
   dbg(`State → ${next}`);
   document.querySelectorAll('.btn-call').forEach((b) => {
-    b.disabled = (next !== S.IDLE);
+    b.disabled = state !== S.IDLE || b.classList.contains('is-offline');
   });
 }
 
 // ─── Debug ────────────────────────────────────────────────────────────────────
 
-on('btn-dbg-toggle', 'click', () => $('debug-panel').classList.toggle('hidden'));
-on('btn-dbg-clear',  'click', () => { $('dbg-log').innerHTML = ''; });
+on('btn-dbg-clear', 'click', () => { $('dbg-log').innerHTML = ''; });
 
 function dbg(msg, level = 'info') {
+  // Always log to console
+  (level === 'error' ? console.error : console.log)(`[InterCom] ${msg}`);
+  // Only show in debug panel if enabled in add-on config
+  if (!debugEnabled) return;
   const t   = new Date().toLocaleTimeString('de-DE');
   const div = document.createElement('div');
   div.className   = `dl dl-${level}`;
@@ -699,5 +634,4 @@ function dbg(msg, level = 'info') {
   const log = $('dbg-log');
   log.insertBefore(div, log.firstChild);
   while (log.children.length > 100) log.removeChild(log.lastChild);
-  (level === 'error' ? console.error : console.log)(`[InterCom] ${msg}`);
 }
