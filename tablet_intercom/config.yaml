@@ -1,0 +1,21 @@
+name: "Tablet Intercom"
+version: "1.0.0"
+slug: "tablet_intercom"
+description: "Lokales Audio/Video-Intercom für Android-Tablets – kein Cloud-Dienst erforderlich"
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:video"
+panel_title: "Tablet Intercom"
+ports:
+  8099/tcp: 8099
+ports_description:
+  8099/tcp: "Tablet Intercom WebUI & WebSocket"
+webui: "http://[HOST]:[PORT:8099]"
+options: {}
+schema: {}
