@@ -101,6 +101,38 @@ app.get('/api/stations', (_req, res) => {
   res.json({ stations: options.stations, debug: options.debug });
 });
 
+// Station-Links API – returns stations with pre-built links when server can detect the base URL.
+// HA Ingress sets X-Ingress-Path + X-Forwarded-* headers; direct access uses the request host.
+// If the full external URL cannot be determined server-side, link is null and the client
+// generates it from window.location (see admin.html getBaseUrl()).
+app.get('/api/station-links', (req, res) => {
+  const ingressPath    = (req.headers['x-ingress-path']   || '').replace(/\/$/, '');
+  const forwardedProto = req.headers['x-forwarded-proto'] || null;
+  const forwardedHost  = req.headers['x-forwarded-host']  || null;
+
+  let base = null;
+  if (ingressPath && forwardedProto && forwardedHost) {
+    // Full HA Ingress context available
+    base = `${forwardedProto}://${forwardedHost}${ingressPath}/`;
+  } else if (!ingressPath) {
+    // Direct port access – host header is reliable here
+    const host = req.headers.host || `localhost:${PORT}`;
+    base = `http://${host}/`;
+  }
+  // Ingress present but forwarded headers missing → base stays null, client handles URL
+
+  const links = options.stations.map((s) => ({
+    id:              s.id,
+    name:            s.name,
+    ringtone:        s.ringtone,
+    speaker_volume:  s.speaker_volume,
+    microphone_gain: s.microphone_gain,
+    link:            base ? `${base}?station=${encodeURIComponent(s.id)}` : null,
+  }));
+
+  res.json({ base: base || null, links, debug: options.debug });
+});
+
 // QR code endpoint – generates SVG QR code for any URL
 // GET /api/qr?url=https%3A%2F%2F...
 app.get('/api/qr', async (req, res) => {

@@ -47,6 +47,9 @@ header {
 .hdr-left span:first-child { font-weight: 700; font-size: .95rem; }
 .hdr-sub  { font-size: .72rem; color: var(--dim); }
 
+.admin-link { font-size: 1.1rem; text-decoration: none; opacity: .45; padding: 0 .35rem; transition: opacity .15s; }
+.admin-link:hover { opacity: 1; }
+
 .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .dot-on  { background: var(--green); box-shadow: 0 0 5px var(--green); }
 .dot-off { background: var(--red); }

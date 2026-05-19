@@ -229,6 +229,10 @@ async function loadConfig(stationId) {
   $('screen-main').classList.add('active');
   $('screen-error').classList.remove('active');
 
+  // Admin-Link für HA Ingress Sub-Pfade korrigieren
+  const adminBase = window.location.pathname.replace(/\/?(\?.*)?$/, '/');
+  $('lnk-admin').href = adminBase + 'admin';
+
   if (debugEnabled) $('debug-panel').classList.remove('hidden');
   setStatus('Kamera wird gestartet…');
 

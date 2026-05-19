@@ -1,6 +1,6 @@
 # HomeAssistant InterCom – Home Assistant Add-on
 
-> **Version 2.1.0** – Flexibel viele Stationen, Broadcast-Anruf an alle, reparierte Intercom-Oberfläche.
+> **Version 2.2.0** – Stationslink-Verwaltungsseite, ⚙️-Schnellzugang, serverseitige URL-Erkennung.
 
 Lokales Audio/Video-Intercom-System für Android-Tablets.
 **Kein Cloud-Dienst, kein externer Server, keine separaten Home-Assistant-Benutzer** – läuft vollständig im LAN.
@@ -175,6 +175,45 @@ debug: false
 - Kann Umlaute und Leerzeichen enthalten
 - Kann jederzeit geändert werden (nur Add-on-Neustart nötig, kein Link-Update)
 - Beispiele: `Büro`, `Flur`, `Werkstatt`, `Eingang`, `Keller Süd`
+
+---
+
+## Stationslinks finden und kopieren
+
+### Schnellweg über ⚙️
+
+Die Intercom-Hauptseite hat oben rechts ein **⚙️-Icon**. Ein Klick öffnet direkt die Stationsverwaltung.
+
+### Stationsverwaltungs-Seite (`/admin`)
+
+Öffne im Browser:
+```
+http://HOMEASSISTANT-IP:8099/admin
+```
+oder über HA Ingress: Seitenleiste → InterCom, dann `/admin` an die URL anhängen.
+
+Die Seite zeigt für jede konfigurierte Station:
+
+| Element | Beschreibung |
+|---|---|
+| **Name + ID** | Anzeigename und technische ID |
+| **Chips** | Klingelton, Lautstärke, Mikrofon-Gain |
+| **Stationslink** | Fertiger Link zum Kopieren |
+| **Kopieren-Button** | Kopiert den Link in die Zwischenablage |
+| **Im Browser öffnen** | Öffnet den Link direkt in einem neuen Tab |
+| **QR-Code** | Ausblend-/Einblend-Button – ideal zum Scannen mit dem Tablet |
+
+**Erkannte Basis-URL:** Die Seite zeigt oben die automatisch erkannte Basis-URL an. Bei Zugriff über HA Ingress wird diese serverseitig aus den Request-Headern ermittelt; bei direktem Port-Zugriff aus der Browser-URL.
+
+### Unterschied: Intercom-Seite vs. Admin-Seite
+
+| Seite | URL | Verwendung |
+|---|---|---|
+| **Intercom** | `/?station=<id>` | Dauerhaft auf dem Tablet geöffnet |
+| **Admin/Links** | `/admin` | Nur zur Einrichtung – zum Kopieren der Links |
+
+Die Admin-Seite ist **nicht** für das Tablet-Intercom selbst gedacht.
+Sie dient nur der Einrichtung und Verwaltung.
 
 ---
 

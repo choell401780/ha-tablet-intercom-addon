@@ -346,7 +346,7 @@ function getBaseUrl() {
   return origin + base;
 }
 
-const BASE_URL = getBaseUrl();
+let BASE_URL = getBaseUrl();
 document.getElementById('base-url-display').textContent = BASE_URL;
 
 function stationUrl(id) {
@@ -406,7 +406,7 @@ function renderStations(stations) {
   }
 
   stations.forEach((s) => {
-    const url    = stationUrl(s.id);
+    const url    = s.link || stationUrl(s.id);
     const card   = document.createElement('div');
     card.className = 'station-card';
 
@@ -461,7 +461,7 @@ function renderIframeExamples(stations) {
   if (!stations || stations.length === 0) { el.textContent = '# Keine Stationen konfiguriert'; return; }
 
   const lines = stations.map((s) => {
-    const url = stationUrl(s.id);
+    const url = s.link || stationUrl(s.id);
     return `# ${s.name}\ntype: iframe\nurl: "${url}"\naspect_ratio: 100%\nallow: "camera; microphone"\ntitle: ${s.name}`;
   });
 
@@ -480,11 +480,16 @@ function escHtml(str) {
 // ── Load data ──────────────────────────────────────────────────────────────────
 async function load() {
   try {
-    const r = await fetch('api/stations');
+    const r = await fetch('api/station-links');
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
-    renderStations(data.stations);
-    renderIframeExamples(data.stations);
+    // Use server-detected base URL if available (improves Ingress link accuracy)
+    if (data.base) {
+      BASE_URL = data.base;
+      document.getElementById('base-url-display').textContent = BASE_URL;
+    }
+    renderStations(data.links);
+    renderIframeExamples(data.links);
   } catch (e) {
     document.getElementById('station-grid').innerHTML =
       `<div class="loading-msg" style="color:var(--red)">Fehler beim Laden: ${e.message}</div>`;
