@@ -208,31 +208,35 @@ async function loadConfig(stationId) {
   }
   if (!cfg) return; // error already shown
 
-  myStation     = cfg.station_id;
-  myStationName = cfg.station_name;
+  myStation     = cfg.station.id;
+  myStationName = cfg.station.name;
 
-  configuredRingtone = cfg.ringtone  ?? 'ring1';
-  configuredTargets  = cfg.available_targets ?? [];
+  configuredRingtone = cfg.station.ringtone ?? 'ring1';
+  configuredTargets  = cfg.targets ?? [];
   debugEnabled       = cfg.debug === true;
 
   // Volume: config default, allow per-session override via slider
   const sessVol = localStorage.getItem('intercom-vol-session');
-  const initVol = sessVol !== null ? parseInt(sessVol, 10) : (cfg.speaker_volume ?? 80);
+  const initVol = sessVol !== null ? parseInt(sessVol, 10) : (cfg.station.speaker_volume ?? 80);
   volSlider.value = initVol;
   applyVolume(initVol);
-
-  if (debugEnabled) $('debug-panel').classList.remove('hidden');
 
   $('lbl-station').textContent = myStationName;
   renderStations([]);
   setState(S.IDLE);
+
+  // Hauptscreen einblenden – beide .screen-Divs starten mit display:none
+  $('screen-main').classList.add('active');
+  $('screen-error').classList.remove('active');
+
+  if (debugEnabled) $('debug-panel').classList.remove('hidden');
   setStatus('Kamera wird gestartet…');
 
   dbg(`Station: ${myStation} (${myStationName})`);
   dbg(`Ziele: ${configuredTargets.map((t) => t.id).join(', ') || '–'}`);
-  dbg(`Klingelton: ${configuredRingtone} | Lautstärke: ${initVol}% | Gain: ${cfg.microphone_gain}%`);
+  dbg(`Klingelton: ${configuredRingtone} | Lautstärke: ${initVol}% | Gain: ${cfg.station.microphone_gain}%`);
 
-  await initMedia(cfg.microphone_gain ?? 100);
+  await initMedia(cfg.station.microphone_gain ?? 100);
   openWs();
 })();
 
@@ -264,8 +268,8 @@ async function initMedia(micGainPct) {
       dbg(`getUserMedia: ${e.message}`, 'warn');
     }
   }
-  setStatus('⚠️ Kamera/Mikrofon nicht verfügbar');
-  dbg('Kein Mediengerät verfügbar', 'error');
+  setStatus('⚠️ Kamera/Mikrofon nicht verfügbar – Nur-Audio-Empfang möglich');
+  dbg('Kein Mediengerät verfügbar – UI bleibt aktiv', 'warn');
 }
 
 // ─── Mic Gain (Web Audio API) ─────────────────────────────────────────────────
@@ -441,23 +445,32 @@ function renderStations(liveList) {
   const liveMap = new Map(liveList.map((s) => [s.id, s]));
 
   configuredTargets.forEach((target) => {
-    const live     = liveMap.get(target.id);
-    const isOnline = !!live;
-    const isBusy   = live?.inCall === true;
-
     const btn = document.createElement('button');
-    btn.className  = 'btn-call' + (!isOnline ? ' is-offline' : isBusy ? ' is-busy' : '');
-    btn.disabled   = state !== S.IDLE || !isOnline;
     btn.dataset.id = target.id;
 
-    const icon = !isOnline ? '⚫' : isBusy ? '🔴' : '📞';
-    btn.innerHTML = `<span>${icon}</span><span>${target.name}</span>`;
-    if (isOnline) btn.addEventListener('click', () => call(target.id));
+    if (target.id === 'all') {
+      const anyAvail = [...liveMap.values()].some((s) => !s.inCall);
+      btn.className = 'btn-call btn-call-all' + (!anyAvail ? ' is-offline' : '');
+      btn.disabled  = state !== S.IDLE || !anyAvail;
+      btn.innerHTML = `<span>📣</span><span>${target.name}</span>`;
+      if (anyAvail) btn.addEventListener('click', () => call('all'));
+    } else {
+      const live     = liveMap.get(target.id);
+      const isOnline = !!live;
+      const isBusy   = live?.inCall === true;
+      btn.className  = 'btn-call' + (!isOnline ? ' is-offline' : isBusy ? ' is-busy' : '');
+      btn.disabled   = state !== S.IDLE || !isOnline;
+      const icon = !isOnline ? '⚫' : isBusy ? '🔴' : '📞';
+      btn.innerHTML  = `<span>${icon}</span><span>${target.name}</span>`;
+      if (isOnline) btn.addEventListener('click', () => call(target.id));
+    }
+
     el.appendChild(btn);
   });
 }
 
 function nameOf(id) {
+  if (id === 'all') return 'Alle';
   return configuredTargets.find((t) => t.id === id)?.name ?? id;
 }
 

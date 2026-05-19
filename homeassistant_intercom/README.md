@@ -1,7 +1,9 @@
 # HomeAssistant InterCom – Home Assistant Add-on
 
+> **Version 2.1.0** – Flexibel viele Stationen, Broadcast-Anruf an alle, reparierte Intercom-Oberfläche.
+
 Lokales Audio/Video-Intercom-System für Android-Tablets.
-**Kein Cloud-Dienst, kein externer Server** – läuft vollständig im LAN.
+**Kein Cloud-Dienst, kein externer Server, keine separaten Home-Assistant-Benutzer** – läuft vollständig im LAN.
 
 Alle Tablets teilen sich **eine einzige Add-on-Instanz**.
 Jede Station wird über einen festen Link im Tablet-Browser zugewiesen.
@@ -442,7 +444,52 @@ Das Intercom nutzt WebSockets für die **Signalisierung** (nicht für Audio/Vide
 
 ---
 
+## Keine separaten Home-Assistant-Benutzer nötig
+
+Das Add-on verwaltet Stationen komplett eigenständig über seine Konfiguration.
+Jedes Tablet bekommt einfach einen festen Link – ohne HA-Login, ohne HA-Benutzerkonto.
+
+| Szenario | Benötigt |
+|---|---|
+| Tablet öffnet Intercom | Nur den Stationslink |
+| Station konfigurieren | HA Add-on Konfiguration (nur einmalig) |
+| Anrufen / Annehmen | Nichts außer dem Browser |
+
+---
+
+## Broadcast – Alle Stationen gleichzeitig rufen
+
+Ab Version 2.1.0 erscheint in der Zielauswahl automatisch ein **"Alle"**-Button (📣).
+Er ist aktiv, wenn mindestens eine andere Station online ist.
+
+**Ablauf:**
+1. Du tippst auf "Alle"
+2. Alle online verfügbaren Stationen klingeln gleichzeitig
+3. Die erste Station, die annimmt, bekommt das Gespräch
+4. Die anderen Stationen hören automatisch auf zu klingeln
+
+---
+
 ## Fehlersuche
+
+### Intercom-Oberfläche erscheint nicht nach Kamera-Berechtigung
+
+**Symptom:** Browser fragt nach Kamera/Mikrofon, danach bleibt die Seite leer.
+
+**Ursache (v2.0.0):** Das war ein Bug – die Hauptoberfläche wurde nie eingeblendet.
+
+**Lösung (ab v2.1.0):** Update auf Version 2.1.0 behebt das Problem vollständig.
+Falls das Problem bei direktem Zugriff über HTTP auftritt:
+- Seite neu laden (F5)
+- HA Ingress oder HTTPS verwenden (empfohlen für Kamera-Zugriff)
+
+### Kamera verweigert, aber UI soll trotzdem funktionieren
+
+Ab v2.1.0: Wenn Kamera/Mikrofon nicht freigegeben werden, zeigt das Intercom trotzdem die
+vollständige Oberfläche. In der Statuszeile erscheint:
+`⚠️ Kamera/Mikrofon nicht verfügbar – Nur-Audio-Empfang möglich`
+
+Du kannst weiterhin Anrufe annehmen – nur ohne eigenes Bild/Ton.
 
 ### "Kein Stationslink verwendet" – Fehlermeldung im Browser
 

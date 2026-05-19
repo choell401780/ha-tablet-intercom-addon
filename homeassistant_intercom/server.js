@@ -76,18 +76,23 @@ app.get('/api/config', (req, res) => {
     });
   }
 
-  const targets = options.stations
-    .filter((s) => s.id !== stationId)
-    .map((s) => ({ id: s.id, name: s.name }));
+  const targets = [
+    ...options.stations
+      .filter((s) => s.id !== stationId)
+      .map((s) => ({ id: s.id, name: s.name })),
+    { id: 'all', name: 'Alle' },
+  ];
 
   res.json({
-    station_id:        station.id,
-    station_name:      station.name,
-    ringtone:          station.ringtone,
-    speaker_volume:    station.speaker_volume,
-    microphone_gain:   station.microphone_gain,
-    available_targets: targets,
-    debug:             options.debug,
+    station: {
+      id:              station.id,
+      name:            station.name,
+      ringtone:        station.ringtone,
+      speaker_volume:  station.speaker_volume,
+      microphone_gain: station.microphone_gain,
+    },
+    targets,
+    debug: options.debug,
   });
 });
 
@@ -198,7 +203,7 @@ wss.on('connection', (ws) => {
         }
         id = msg.station;
         const name = msg.name || stationLabel(id);
-        registry.set(id, { ws, name, inCall: false });
+        registry.set(id, { ws, name, inCall: false, broadcastTargets: null });
         log(id, `registriert als "${name}"`);
         ws.send(JSON.stringify({ type: 'registered', station: id, name }));
         broadcastStations();
@@ -207,6 +212,21 @@ wss.on('connection', (ws) => {
 
       case 'call-request': {
         if (!id) return;
+        if (msg.to === 'all') {
+          const available = [...registry.entries()]
+            .filter(([tid, ts]) => tid !== id && !ts.inCall && ts.ws.readyState === WebSocket.OPEN);
+          if (available.length === 0) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Keine anderen Stationen online oder verfügbar' }));
+            return;
+          }
+          const targetIds = new Set(available.map(([tid]) => tid));
+          registry.get(id).broadcastTargets = targetIds;
+          log(id, `→ ruft alle: ${[...targetIds].join(', ')}`);
+          for (const [, ts] of available) {
+            ts.ws.send(JSON.stringify({ type: 'call-request', from: id }));
+          }
+          break;
+        }
         const target = registry.get(msg.to);
         if (!target) {
           ws.send(JSON.stringify({ type: 'error', message: `${stationLabel(msg.to)} ist offline` }));
@@ -221,29 +241,69 @@ wss.on('connection', (ws) => {
         break;
       }
 
-      case 'call-accepted':
+      case 'call-accepted': {
         if (!id) return;
+        const callerEntry = registry.get(msg.to);
+        if (callerEntry?.broadcastTargets) {
+          for (const tid of callerEntry.broadcastTargets) {
+            if (tid !== id) {
+              const ts = registry.get(tid);
+              if (ts?.ws.readyState === WebSocket.OPEN) {
+                ts.ws.send(JSON.stringify({ type: 'call-ended', from: msg.to }));
+              }
+            }
+          }
+          callerEntry.broadcastTargets = null;
+        }
         if (registry.has(id))     registry.get(id).inCall     = true;
         if (registry.has(msg.to)) registry.get(msg.to).inCall = true;
         log(id, `nimmt Anruf von ${msg.to} an`);
         relay(id, msg);
         broadcastStations();
         break;
+      }
 
-      case 'call-rejected':
+      case 'call-rejected': {
         if (!id) return;
-        log(id, `lehnt Anruf von ${msg.to} ab`);
-        relay(id, msg);
+        const callerRej = registry.get(msg.to);
+        if (callerRej?.broadcastTargets?.has(id)) {
+          callerRej.broadcastTargets.delete(id);
+          log(id, `lehnt Broadcast-Anruf ab (verbleibend: ${callerRej.broadcastTargets.size})`);
+          if (callerRej.broadcastTargets.size === 0) {
+            callerRej.broadcastTargets = null;
+            if (callerRej.ws.readyState === WebSocket.OPEN) {
+              callerRej.ws.send(JSON.stringify({ type: 'call-rejected', from: id }));
+            }
+          }
+        } else {
+          log(id, `lehnt Anruf von ${msg.to} ab`);
+          relay(id, msg);
+        }
         break;
+      }
 
-      case 'call-ended':
+      case 'call-ended': {
         if (!id) return;
+        const myEntry = registry.get(id);
+        if (myEntry?.broadcastTargets) {
+          for (const tid of myEntry.broadcastTargets) {
+            const ts = registry.get(tid);
+            if (ts?.ws.readyState === WebSocket.OPEN) {
+              ts.ws.send(JSON.stringify({ type: 'call-ended', from: id }));
+            }
+          }
+          myEntry.broadcastTargets = null;
+          log(id, 'bricht Broadcast-Anruf ab');
+          broadcastStations();
+          break;
+        }
         if (registry.has(id))     registry.get(id).inCall     = false;
         if (registry.has(msg.to)) registry.get(msg.to).inCall = false;
         log(id, `beendet Gespräch mit ${msg.to}`);
         relay(id, msg);
         broadcastStations();
         break;
+      }
 
       case 'offer':
       case 'answer':
