@@ -1,6 +1,6 @@
 {
   "name": "homeassistant-intercom",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "HomeAssistant InterCom – Lokales Audio/Video-Intercom",
   "main": "server.js",
   "scripts": {
@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
+    "qrcode": "^1.5.4",
     "ws": "^8.17.1"
   },
   "engines": {

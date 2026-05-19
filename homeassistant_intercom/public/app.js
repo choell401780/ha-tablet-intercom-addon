@@ -12,26 +12,25 @@ const RING_TIMEOUT_MS = 30_000;
 
 // ─── App state ────────────────────────────────────────────────────────────────
 
-let state             = S.IDLE;
-let myStation         = null;    // station id (string)
-let myStationName     = null;    // display name
-let configuredTargets = [];      // [{id, name}] – from /api/config
+let state              = S.IDLE;
+let myStation          = null;    // station id (string, from URL param)
+let myStationName      = null;    // display name
+let configuredTargets  = [];      // [{id, name}] – from /api/config?station=X
 let configuredRingtone = 'ring1';
-let debugEnabled      = false;
+let debugEnabled       = false;
 
 let ws           = null;
 let wsTimer      = null;
-let localStream  = null;   // raw stream – used for local video preview
-let txStream     = null;   // processed stream – sent over WebRTC (has mic gain applied)
-let pc           = null;   // RTCPeerConnection
-let peer         = null;   // current partner station id
+let localStream  = null;
+let txStream     = null;
+let pc           = null;
+let peer         = null;
 let isCaller     = false;
 let muted        = false;
 let camOff       = false;
 let iceBuf       = [];
 let ringTimer    = null;
 
-// Web Audio API mic gain
 let micGainNode  = null;
 
 // ─── DOM helpers ──────────────────────────────────────────────────────────────
@@ -54,15 +53,29 @@ function showBusy(msg) {
   setTimeout(() => $('banner-busy').classList.add('hidden'), 3000);
 }
 
+// ─── Error screen ─────────────────────────────────────────────────────────────
+
+function showError(title, message, detail = '') {
+  $('err-title').textContent   = title;
+  $('err-msg').textContent     = message;
+  $('err-detail').innerHTML    = detail;
+
+  // Fix the admin link to work from any sub-path (HA Ingress support)
+  const adminBase = window.location.pathname.replace(/\/?(\?.*)?$/, '/');
+  $('err-admin-link').href = adminBase + 'admin';
+
+  $('screen-error').classList.add('active');
+  $('screen-main').classList.remove('active');
+}
+
 // ─── Ringtone (Web Audio API synthesis) ──────────────────────────────────────
 
-// Patterns: array of [frequency_hz, duration_s] — 0 Hz = silence
 const RING_PATTERNS = {
-  ring1: [[880, 0.15], [0, 0.08], [880, 0.15], [0, 0.72]],   // Doppelton
-  ring2: [[440, 0.70], [0, 0.50]],                             // Einzelton lang
-  ring3: [[1047,0.07], [0, 0.04],[1047,0.07],[0,0.04],[1047,0.07],[0,0.58]], // Dreifach
-  ring4: [[880, 0.18], [660, 0.18],[440, 0.36],[0, 0.38]],    // Absteigend
-  ring5: [[440, 0.18], [660, 0.18],[880, 0.36],[0, 0.38]],    // Aufsteigend
+  ring1: [[880, 0.15], [0, 0.08], [880, 0.15], [0, 0.72]],
+  ring2: [[440, 0.70], [0, 0.50]],
+  ring3: [[1047,0.07], [0, 0.04],[1047,0.07],[0,0.04],[1047,0.07],[0,0.58]],
+  ring4: [[880, 0.18], [660, 0.18],[440, 0.36],[0, 0.38]],
+  ring5: [[440, 0.18], [660, 0.18],[880, 0.36],[0, 0.38]],
 };
 
 const ring = (() => {
@@ -115,7 +128,6 @@ const ring = (() => {
   };
 })();
 
-// Unlock AudioContext after first user gesture (Chrome autoplay policy)
 document.addEventListener('click',      () => ring.unlock(), { once: true });
 document.addEventListener('touchstart', () => ring.unlock(), { once: true });
 
@@ -151,59 +163,68 @@ function applyVolume(val) {
 
 // ─── Config loading ───────────────────────────────────────────────────────────
 
-async function loadConfig() {
-  try {
-    const r = await fetch('api/config');
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return await r.json();
-  } catch (e) {
-    console.error(`[InterCom] Config-Fehler: ${e.message}`);
-    // Safe fallback so the app still starts
-    return {
-      station_id:        'buero',
-      station_name:      'Büro',
-      available_targets: [],
-      ringtone:          'ring1',
-      speaker_volume:    80,
-      microphone_gain:   100,
-      debug:             false,
-    };
+async function loadConfig(stationId) {
+  const r = await fetch(`api/config?station=${encodeURIComponent(stationId)}`);
+  if (r.status === 404) {
+    const body = await r.json().catch(() => ({}));
+    const avail = (body.available || []).join(', ') || '–';
+    showError(
+      'Unbekannte Station',
+      `Die Station "${stationId}" ist nicht im Add-on konfiguriert.`,
+      `<p>Konfigurierte Stationen: <strong>${avail}</strong></p>` +
+      `<p>Bitte den Link korrigieren oder die Add-on-Konfiguration prüfen.</p>`
+    );
+    return null;
   }
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
 }
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 
 (async function boot() {
-  const cfg = await loadConfig();
-
-  // Station: URL param ?station=XXX overrides config.station_id
-  // This allows one add-on to serve all tablets via different iframe URLs.
+  // Station MUST be provided via URL parameter – no fallback to localStorage or config defaults.
+  // This is intentional: each tablet gets its own permanent link that defines its identity.
   const urlStation = new URLSearchParams(window.location.search).get('station');
-  if (urlStation) {
-    myStation     = urlStation;
-    const match   = (cfg.available_targets ?? []).find((t) => t.id === urlStation);
-    myStationName = match ? match.name : urlStation;
-  } else {
-    myStation     = cfg.station_id;
-    myStationName = cfg.station_name;
+
+  if (!urlStation) {
+    const basePath = window.location.pathname.replace(/\/?(\?.*)?$/, '/');
+    showError(
+      'Kein Stationslink verwendet',
+      'Dieses Tablet hat keinen Stationsparameter in der URL.',
+      `<p>Füge <code>?station=<em>id</em></code> zur URL hinzu, z. B.:</p>` +
+      `<pre>${window.location.origin}${basePath}?station=buero</pre>` +
+      `<p>Die fertigen Stationslinks findest du in der Stationsverwaltung.</p>`
+    );
+    return;
   }
 
-  // Apply config values
+  let cfg;
+  try {
+    cfg = await loadConfig(urlStation);
+  } catch (e) {
+    showError('Verbindungsfehler', `Konfiguration konnte nicht geladen werden: ${e.message}`);
+    return;
+  }
+  if (!cfg) return; // error already shown
+
+  myStation     = cfg.station_id;
+  myStationName = cfg.station_name;
+
   configuredRingtone = cfg.ringtone  ?? 'ring1';
-  configuredTargets  = (cfg.available_targets ?? []).filter((t) => t.id !== myStation);
+  configuredTargets  = cfg.available_targets ?? [];
   debugEnabled       = cfg.debug === true;
 
-  // Volume: config default, but allow per-session localStorage adjustment
+  // Volume: config default, allow per-session override via slider
   const sessVol = localStorage.getItem('intercom-vol-session');
   const initVol = sessVol !== null ? parseInt(sessVol, 10) : (cfg.speaker_volume ?? 80);
   volSlider.value = initVol;
   applyVolume(initVol);
 
-  // Show debug panel only if enabled in add-on config
   if (debugEnabled) $('debug-panel').classList.remove('hidden');
 
   $('lbl-station').textContent = myStationName;
-  renderStations([]);   // show configured targets as offline until WS connects
+  renderStations([]);
   setState(S.IDLE);
   setStatus('Kamera wird gestartet…');
 
@@ -215,7 +236,7 @@ async function loadConfig() {
   openWs();
 })();
 
-// ─── Volume slider (in call controls) ────────────────────────────────────────
+// ─── Volume slider ────────────────────────────────────────────────────────────
 
 volSlider.addEventListener('input', () => {
   const v = parseInt(volSlider.value, 10);
@@ -296,7 +317,6 @@ function openWs() {
   ws.onopen = () => {
     $('dot-ws').className = 'dot dot-on';
     dbg('WS verbunden');
-    // Send station name so server can display it correctly
     ws.send(JSON.stringify({ type: 'register', station: myStation, name: myStationName }));
   };
 
@@ -346,7 +366,7 @@ async function onSignal(m) {
       peer     = m.from;
       isCaller = false;
       setState(S.RINGING);
-      $('lbl-caller').textContent = nameOf(m.from, m.stations);
+      $('lbl-caller').textContent = nameOf(m.from);
       $('banner-incoming').classList.remove('hidden');
       setStatus(`Eingehender Anruf von ${nameOf(m.from)}`);
       ring.start(configuredRingtone);
@@ -408,14 +428,13 @@ async function onSignal(m) {
 }
 
 // ─── Station list ─────────────────────────────────────────────────────────────
-// Shows configured targets with live online/busy status from WebSocket.
 
 function renderStations(liveList) {
   const el     = $('station-list');
   el.innerHTML = '';
 
   if (configuredTargets.length === 0) {
-    el.innerHTML = '<span class="no-stations">Keine Ziele konfiguriert</span>';
+    el.innerHTML = '<span class="no-stations">Keine weiteren Stationen konfiguriert</span>';
     return;
   }
 
@@ -623,9 +642,7 @@ function setState(next) {
 on('btn-dbg-clear', 'click', () => { $('dbg-log').innerHTML = ''; });
 
 function dbg(msg, level = 'info') {
-  // Always log to console
   (level === 'error' ? console.error : console.log)(`[InterCom] ${msg}`);
-  // Only show in debug panel if enabled in add-on config
   if (!debugEnabled) return;
   const t   = new Date().toLocaleTimeString('de-DE');
   const div = document.createElement('div');

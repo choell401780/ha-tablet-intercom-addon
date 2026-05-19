@@ -259,6 +259,60 @@ header {
 .dl-warn  { color: var(--yellow); }
 .dl-error { color: var(--red); }
 
+/* ─── Error screen ───────────────────────────────────────────────────────── */
+.err-wrap {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 100dvh;
+  padding: 2rem;
+  gap: 1rem;
+  text-align: center;
+}
+
+.err-icon { font-size: 4rem; }
+
+.err-wrap h1 { font-size: 1.5rem; color: var(--red); }
+
+.err-wrap p {
+  color: var(--dim);
+  font-size: .95rem;
+  max-width: 480px;
+}
+
+.err-wrap pre {
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: .65rem 1rem;
+  font-size: .82rem;
+  font-family: 'Courier New', monospace;
+  color: var(--text);
+  overflow-x: auto;
+  max-width: 90vw;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.err-wrap code {
+  background: var(--surf2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'Courier New', monospace;
+  font-size: .85em;
+}
+
+.err-admin-btn {
+  display: inline-block;
+  margin-top: .5rem;
+  background: var(--blue);
+  color: #fff;
+  text-decoration: none;
+  padding: .6rem 1.4rem;
+  border-radius: var(--r);
+  font-weight: 600;
+  font-size: .9rem;
+}
+
 /* ─── Utility ────────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }
 

@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stationsverwaltung – HomeAssistant InterCom</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:     #0d1117;
+      --surf:   #161b22;
+      --surf2:  #21262d;
+      --border: #30363d;
+      --blue:   #1f6feb;
+      --green:  #3fb950;
+      --red:    #f85149;
+      --yellow: #d29922;
+      --text:   #e6edf3;
+      --dim:    #8b949e;
+      --r:      10px;
+    }
+
+    html, body {
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    a { color: var(--blue); }
+
+    header {
+      background: var(--surf);
+      border-bottom: 1px solid var(--border);
+      padding: .9rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    header h1 { font-size: 1.1rem; font-weight: 700; }
+    header p  { font-size: .8rem; color: var(--dim); }
+
+    .header-right a {
+      font-size: .82rem;
+      color: var(--dim);
+      text-decoration: none;
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: .35rem .8rem;
+    }
+
+    main {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 1.5rem 1rem 3rem;
+    }
+
+    .section-title {
+      font-size: .72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--dim);
+      margin: 1.8rem 0 .8rem;
+    }
+
+    /* ── Base URL info ── */
+    .baseurl-box {
+      background: var(--surf);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: .85rem 1rem;
+      font-size: .85rem;
+      color: var(--dim);
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      flex-wrap: wrap;
+    }
+
+    .baseurl-box code {
+      color: var(--text);
+      font-family: 'Courier New', monospace;
+      font-size: .88rem;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 2px 6px;
+    }
+
+    /* ── Station cards ── */
+    .station-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 1rem;
+    }
+
+    .station-card {
+      background: var(--surf);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.1rem 1.2rem;
+      display: flex;
+      flex-direction: column;
+      gap: .75rem;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: baseline;
+      gap: .6rem;
+    }
+
+    .card-name {
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+
+    .card-id {
+      font-size: .78rem;
+      color: var(--dim);
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .card-meta {
+      display: flex;
+      gap: .5rem;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      font-size: .72rem;
+      color: var(--dim);
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2px 8px;
+    }
+
+    /* ── URL row ── */
+    .url-row {
+      display: flex;
+      gap: .4rem;
+      align-items: stretch;
+    }
+
+    .url-box {
+      flex: 1;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: .45rem .7rem;
+      font-size: .78rem;
+      font-family: 'Courier New', monospace;
+      color: var(--text);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+
+    .btn-copy {
+      background: var(--blue);
+      color: #fff;
+      border: none;
+      border-radius: 7px;
+      padding: .45rem .85rem;
+      font-size: .8rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity .15s;
+      flex-shrink: 0;
+    }
+
+    .btn-copy:active       { opacity: .75; }
+    .btn-copy.copied       { background: var(--green); }
+
+    /* ── QR code ── */
+    .qr-toggle {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      color: var(--dim);
+      font-size: .78rem;
+      padding: .35rem .75rem;
+      cursor: pointer;
+      width: 100%;
+      text-align: center;
+      transition: border-color .15s, color .15s;
+    }
+
+    .qr-toggle:hover { border-color: var(--blue); color: var(--text); }
+
+    .qr-area {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: .5rem;
+      background: #fff;
+      border-radius: 8px;
+    }
+
+    .qr-area.visible { display: flex; }
+
+    .qr-area img, .qr-area svg {
+      width: 180px;
+      height: 180px;
+    }
+
+    .qr-hint {
+      font-size: .72rem;
+      color: var(--dim);
+      text-align: center;
+      margin-top: .25rem;
+    }
+
+    /* ── Open button ── */
+    .btn-open {
+      display: block;
+      text-align: center;
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: .45rem;
+      font-size: .8rem;
+      color: var(--dim);
+      text-decoration: none;
+      transition: border-color .15s, color .15s;
+    }
+
+    .btn-open:hover { border-color: var(--blue); color: var(--text); }
+
+    /* ── Loading / error state ── */
+    .loading-msg {
+      color: var(--dim);
+      font-size: .9rem;
+      padding: 2rem 0;
+      text-align: center;
+    }
+
+    /* ── Hint box ── */
+    .hint-box {
+      background: var(--surf);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--blue);
+      border-radius: var(--r);
+      padding: .85rem 1rem;
+      font-size: .84rem;
+      line-height: 1.55;
+      color: var(--dim);
+    }
+
+    .hint-box strong { color: var(--text); }
+    .hint-box code {
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-family: 'Courier New', monospace;
+      font-size: .88em;
+    }
+
+    /* ── iframe examples ── */
+    .code-block {
+      background: var(--surf2);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      padding: .85rem 1rem;
+      font-family: 'Courier New', monospace;
+      font-size: .8rem;
+      overflow-x: auto;
+      white-space: pre;
+      color: var(--text);
+    }
+
+    /* responsive */
+    @media (max-width: 480px) {
+      .station-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🏠 HomeAssistant InterCom – Stationsverwaltung</h1>
+    <p>Hier findest du alle Stationslinks und QR-Codes für deine Tablets.</p>
+  </div>
+  <div class="header-right">
+    <a href=".">← Zurück zur Intercom</a>
+  </div>
+</header>
+
+<main>
+
+  <div class="section-title">Basis-URL dieser Instanz</div>
+  <div class="baseurl-box">
+    <span>Erkannt:</span>
+    <code id="base-url-display">…</code>
+    <span style="flex:1; color: var(--dim); font-size: .78rem;">(aus deiner Browser-URL automatisch ermittelt)</span>
+  </div>
+
+  <div class="section-title">Konfigurierte Stationen</div>
+  <div id="station-grid" class="station-grid">
+    <div class="loading-msg">Lade Stationen…</div>
+  </div>
+
+  <div class="section-title">So verwendest du die Stationslinks</div>
+  <div class="hint-box">
+    <p><strong>Jedes Tablet bekommt einen festen Link</strong>, der die Station eindeutig identifiziert.
+    Öffne diesen Link im Browser des Tablets – das Intercom meldet sich dann automatisch als diese Station an.</p>
+    <br>
+    <p>Beispiel-Link: <code>http://192.168.1.10:8099/?station=buero</code></p>
+    <br>
+    <p>Der Parameter <code>?station=</code> muss immer dabei sein.
+    Fehlt er, zeigt das Intercom eine Fehlermeldung mit Erklärung.</p>
+    <br>
+    <p><strong>Tipp Fully Kiosk Browser:</strong> Den Stationslink als Startseite eintragen unter
+    <em>Einstellungen → Startseiten-URL</em>. Der Link bleibt dauerhaft erhalten,
+    auch nach Browser-Neustart oder App-Update.</p>
+  </div>
+
+  <div class="section-title">Einbindung als iframe card (Home Assistant)</div>
+  <div id="iframe-examples" class="code-block">Lade…</div>
+
+</main>
+
+<script>
+'use strict';
+
+// Determine base URL from current browser location.
+// Works for both HA Ingress (https://ha.domain/api/hassio_ingress/TOKEN/admin)
+// and direct access (http://192.168.1.10:8099/admin).
+function getBaseUrl() {
+  const { origin, pathname } = window.location;
+  // Remove trailing "admin" segment, keep trailing slash
+  const base = pathname.replace(/\/admin\/?$/, '/').replace(/\/+$/, '/');
+  return origin + base;
+}
+
+const BASE_URL = getBaseUrl();
+document.getElementById('base-url-display').textContent = BASE_URL;
+
+function stationUrl(id) {
+  return BASE_URL + '?station=' + encodeURIComponent(id);
+}
+
+// ── Copy to clipboard ──────────────────────────────────────────────────────────
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓ Kopiert!';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = 'Kopieren';
+      btn.classList.remove('copied');
+    }, 2000);
+  }).catch(() => {
+    // Fallback for browsers that block clipboard without user gesture
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity  = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); } catch {}
+    document.body.removeChild(ta);
+    btn.textContent = '✓ Kopiert!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Kopieren'; btn.classList.remove('copied'); }, 2000);
+  });
+}
+
+// ── QR code toggle ─────────────────────────────────────────────────────────────
+function toggleQr(area, url) {
+  if (area.classList.contains('visible')) {
+    area.classList.remove('visible');
+    return;
+  }
+  if (!area.querySelector('img')) {
+    const qrUrl = 'api/qr?url=' + encodeURIComponent(url);
+    const img   = document.createElement('img');
+    img.src = qrUrl;
+    img.alt = 'QR-Code';
+    area.appendChild(img);
+  }
+  area.classList.add('visible');
+}
+
+// ── Render stations ────────────────────────────────────────────────────────────
+function renderStations(stations) {
+  const grid = document.getElementById('station-grid');
+  grid.innerHTML = '';
+
+  if (!stations || stations.length === 0) {
+    grid.innerHTML = '<div class="loading-msg">Keine Stationen konfiguriert.</div>';
+    return;
+  }
+
+  stations.forEach((s) => {
+    const url    = stationUrl(s.id);
+    const card   = document.createElement('div');
+    card.className = 'station-card';
+
+    const ringtoneLabel = {
+      ring1: 'Doppelton',
+      ring2: 'Einzelton',
+      ring3: 'Dreifach',
+      ring4: 'Absteigend',
+      ring5: 'Aufsteigend',
+    }[s.ringtone] || s.ringtone;
+
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="card-name">${escHtml(s.name)}</span>
+        <span class="card-id">${escHtml(s.id)}</span>
+      </div>
+      <div class="card-meta">
+        <span class="chip">🔔 ${escHtml(ringtoneLabel)}</span>
+        <span class="chip">🔊 ${s.speaker_volume ?? 80}%</span>
+        <span class="chip">🎤 Gain ${s.microphone_gain ?? 100}%</span>
+      </div>
+      <div class="url-row">
+        <div class="url-box" title="${escHtml(url)}">${escHtml(url)}</div>
+        <button class="btn-copy">Kopieren</button>
+      </div>
+      <div class="qr-area" id="qr-${escHtml(s.id)}"></div>
+      <div class="qr-hint" id="qr-hint-${escHtml(s.id)}" style="display:none;">
+        QR-Code mit Tablet-Kamera scannen
+      </div>
+      <button class="qr-toggle">QR-Code anzeigen / ausblenden</button>
+      <a href="${escHtml(url)}" target="_blank" class="btn-open">Im Browser öffnen →</a>
+    `;
+
+    const copyBtn = card.querySelector('.btn-copy');
+    copyBtn.addEventListener('click', () => copyText(url, copyBtn));
+
+    const qrArea  = card.querySelector('.qr-area');
+    const qrHint  = card.querySelector('.qr-hint');
+    const qrToggle = card.querySelector('.qr-toggle');
+    qrToggle.addEventListener('click', () => {
+      toggleQr(qrArea, url);
+      qrHint.style.display = qrArea.classList.contains('visible') ? 'block' : 'none';
+    });
+
+    grid.appendChild(card);
+  });
+}
+
+// ── Render iframe examples ─────────────────────────────────────────────────────
+function renderIframeExamples(stations) {
+  const el = document.getElementById('iframe-examples');
+  if (!stations || stations.length === 0) { el.textContent = '# Keine Stationen konfiguriert'; return; }
+
+  const lines = stations.map((s) => {
+    const url = stationUrl(s.id);
+    return `# ${s.name}\ntype: iframe\nurl: "${url}"\naspect_ratio: 100%\nallow: "camera; microphone"\ntitle: ${s.name}`;
+  });
+
+  el.textContent = lines.join('\n\n');
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Load data ──────────────────────────────────────────────────────────────────
+async function load() {
+  try {
+    const r = await fetch('api/stations');
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
+    renderStations(data.stations);
+    renderIframeExamples(data.stations);
+  } catch (e) {
+    document.getElementById('station-grid').innerHTML =
+      `<div class="loading-msg" style="color:var(--red)">Fehler beim Laden: ${e.message}</div>`;
+  }
+}
+
+load();
+</script>
+
+</body>
+</html>

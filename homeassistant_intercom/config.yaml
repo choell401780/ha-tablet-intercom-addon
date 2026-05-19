@@ -1,5 +1,5 @@
 name: "HomeAssistant InterCom"
-version: "1.2.0"
+version: "2.0.0"
 slug: "homeassistant_intercom"
 description: "Lokales Audio/Video-Intercom für Android-Tablets – kein Cloud-Dienst erforderlich"
 arch:
@@ -18,25 +18,29 @@ ports_description:
   8099/tcp: "HomeAssistant InterCom WebUI & WebSocket"
 webui: "http://[HOST]:[PORT:8099]"
 options:
-  station_id: "buero"
-  station_name: "Büro"
-  available_targets:
+  stations:
+    - id: "buero"
+      name: "Büro"
+      ringtone: "ring1"
+      speaker_volume: 80
+      microphone_gain: 100
     - id: "flur"
       name: "Flur"
+      ringtone: "ring2"
+      speaker_volume: 90
+      microphone_gain: 100
     - id: "werkstatt"
       name: "Werkstatt"
-  ringtone: "ring1"
-  speaker_volume: 80
-  microphone_gain: 100
+      ringtone: "ring3"
+      speaker_volume: 100
+      microphone_gain: 100
   debug: false
 
 schema:
-  station_id: str
-  station_name: str
-  available_targets:
+  stations:
     - id: str
       name: str
-  ringtone: str
-  speaker_volume: int(0,100)
-  microphone_gain: int(0,300)
+      ringtone: str
+      speaker_volume: int(0,100)
+      microphone_gain: int(0,300)
   debug: bool

@@ -5,6 +5,7 @@ const http      = require('http');
 const WebSocket = require('ws');
 const path      = require('path');
 const fs        = require('fs');
+const QRCode    = require('qrcode');
 
 const PORT         = parseInt(process.env.PORT || '8099', 10);
 const OPTIONS_FILE = '/data/options.json';
@@ -12,16 +13,12 @@ const OPTIONS_FILE = '/data/options.json';
 // ─── Add-on configuration ─────────────────────────────────────────────────────
 
 const DEFAULTS = {
-  station_id:        'buero',
-  station_name:      'Büro',
-  available_targets: [
-    { id: 'flur',      name: 'Flur'      },
-    { id: 'werkstatt', name: 'Werkstatt' },
+  stations: [
+    { id: 'buero',     name: 'Büro',      ringtone: 'ring1', speaker_volume: 80,  microphone_gain: 100 },
+    { id: 'flur',      name: 'Flur',      ringtone: 'ring2', speaker_volume: 90,  microphone_gain: 100 },
+    { id: 'werkstatt', name: 'Werkstatt', ringtone: 'ring3', speaker_volume: 100, microphone_gain: 100 },
   ],
-  ringtone:          'ring1',
-  speaker_volume:    80,
-  microphone_gain:   100,
-  debug:             false,
+  debug: false,
 };
 
 function loadOptions() {
@@ -35,8 +32,11 @@ function loadOptions() {
   }
 }
 
-const options = loadOptions();
-console.log(`[InterCom] Konfiguration: station="${options.station_id}" debug=${options.debug}`);
+const options    = loadOptions();
+const stationCfg = new Map(options.stations.map((s) => [s.id, s]));
+
+console.log(`[InterCom] ${options.stations.length} Stationen: ${options.stations.map((s) => s.id).join(', ')}`);
+console.log(`[InterCom] debug=${options.debug}`);
 
 // ─── Express ──────────────────────────────────────────────────────────────────
 
@@ -45,19 +45,80 @@ const server = http.createServer(app);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Health check
 app.get('/health', (_req, res) => {
   res.json({
-    status:   'ok',
-    uptime:   Math.floor(process.uptime()),
-    stations: [...stations.entries()].map(([id, s]) => ({
-      id, name: s.name, inCall: s.inCall,
-    })),
+    status:  'ok',
+    uptime:  Math.floor(process.uptime()),
+    online:  [...registry.entries()].map(([id, s]) => ({ id, name: s.name, inCall: s.inCall })),
   });
 });
 
-// Config API – read by the frontend on startup
-app.get('/api/config', (_req, res) => {
-  res.json(options);
+// Station config API – called by the tablet frontend at boot
+// GET /api/config?station=buero  → returns this station's config + all other stations as targets
+// GET /api/config                → returns minimal station list (used by admin page)
+app.get('/api/config', (req, res) => {
+  const stationId = req.query.station;
+
+  if (!stationId) {
+    return res.json({
+      stations: options.stations.map((s) => ({ id: s.id, name: s.name })),
+      debug:    options.debug,
+    });
+  }
+
+  const station = stationCfg.get(stationId);
+  if (!station) {
+    return res.status(404).json({
+      error:     'station_not_found',
+      station:   stationId,
+      available: options.stations.map((s) => s.id),
+    });
+  }
+
+  const targets = options.stations
+    .filter((s) => s.id !== stationId)
+    .map((s) => ({ id: s.id, name: s.name }));
+
+  res.json({
+    station_id:        station.id,
+    station_name:      station.name,
+    ringtone:          station.ringtone,
+    speaker_volume:    station.speaker_volume,
+    microphone_gain:   station.microphone_gain,
+    available_targets: targets,
+    debug:             options.debug,
+  });
+});
+
+// Admin API – full station list for the management page
+app.get('/api/stations', (_req, res) => {
+  res.json({ stations: options.stations, debug: options.debug });
+});
+
+// QR code endpoint – generates SVG QR code for any URL
+// GET /api/qr?url=https%3A%2F%2F...
+app.get('/api/qr', async (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'url parameter required' });
+  try {
+    const svg = await QRCode.toString(url, {
+      type:                 'svg',
+      errorCorrectionLevel: 'M',
+      width:                220,
+      margin:               1,
+    });
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.send(svg);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Station management page
+app.get('/admin', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 // SPA fallback – required for HA Ingress sub-paths
@@ -81,31 +142,27 @@ server.on('upgrade', (req, socket, head) => {
 
 // ─── Station Registry ─────────────────────────────────────────────────────────
 // Map<stationId, { ws, name, inCall }>
-const stations = new Map();
+const registry = new Map();
 
 function stationLabel(id) {
-  // Prefer name from configured targets, fall back to built-in labels or id
-  const t = options.available_targets?.find((x) => x.id === id);
-  if (t) return t.name;
-  const builtIn = { buero: 'Büro', flur: 'Flur', werkstatt: 'Werkstatt' };
-  return builtIn[id] ?? id;
+  return stationCfg.get(id)?.name ?? id;
 }
 
 function ts()           { return new Date().toLocaleTimeString('de-DE'); }
 function log(id, msg)   { console.log(`[${ts()}] [${id ?? '-'}] ${msg}`); }
 
 function broadcastStations() {
-  const list    = [...stations.entries()].map(([id, s]) => ({ id, name: s.name, inCall: s.inCall }));
+  const list    = [...registry.entries()].map(([id, s]) => ({ id, name: s.name, inCall: s.inCall }));
   const payload = JSON.stringify({ type: 'stations', stations: list });
-  for (const [, s] of stations) {
+  for (const [, s] of registry) {
     if (s.ws.readyState === WebSocket.OPEN) s.ws.send(payload);
   }
 }
 
 function relay(fromId, msg) {
-  const target = stations.get(msg.to);
+  const target = registry.get(msg.to);
   if (!target || target.ws.readyState !== WebSocket.OPEN) {
-    const sender = stations.get(fromId);
+    const sender = registry.get(fromId);
     if (sender?.ws.readyState === WebSocket.OPEN) {
       sender.ws.send(JSON.stringify({ type: 'error', message: `${stationLabel(msg.to)} ist nicht erreichbar` }));
     }
@@ -125,15 +182,23 @@ wss.on('connection', (ws) => {
     switch (msg.type) {
 
       case 'register': {
-        const old = stations.get(msg.station);
+        // Only accept stations that are defined in the add-on config
+        if (!stationCfg.has(msg.station)) {
+          ws.send(JSON.stringify({
+            type:    'error',
+            message: `Station "${msg.station}" ist nicht konfiguriert`,
+          }));
+          ws.close();
+          return;
+        }
+        const old = registry.get(msg.station);
         if (old && old.ws !== ws && old.ws.readyState === WebSocket.OPEN) {
           old.ws.send(JSON.stringify({ type: 'replaced' }));
           old.ws.close();
         }
         id = msg.station;
-        // Accept the display name sent by the client (comes from config), fall back to label
         const name = msg.name || stationLabel(id);
-        stations.set(id, { ws, name, inCall: false });
+        registry.set(id, { ws, name, inCall: false });
         log(id, `registriert als "${name}"`);
         ws.send(JSON.stringify({ type: 'registered', station: id, name }));
         broadcastStations();
@@ -142,7 +207,7 @@ wss.on('connection', (ws) => {
 
       case 'call-request': {
         if (!id) return;
-        const target = stations.get(msg.to);
+        const target = registry.get(msg.to);
         if (!target) {
           ws.send(JSON.stringify({ type: 'error', message: `${stationLabel(msg.to)} ist offline` }));
           return;
@@ -158,8 +223,8 @@ wss.on('connection', (ws) => {
 
       case 'call-accepted':
         if (!id) return;
-        if (stations.has(id))     stations.get(id).inCall     = true;
-        if (stations.has(msg.to)) stations.get(msg.to).inCall = true;
+        if (registry.has(id))     registry.get(id).inCall     = true;
+        if (registry.has(msg.to)) registry.get(msg.to).inCall = true;
         log(id, `nimmt Anruf von ${msg.to} an`);
         relay(id, msg);
         broadcastStations();
@@ -173,8 +238,8 @@ wss.on('connection', (ws) => {
 
       case 'call-ended':
         if (!id) return;
-        if (stations.has(id))     stations.get(id).inCall     = false;
-        if (stations.has(msg.to)) stations.get(msg.to).inCall = false;
+        if (registry.has(id))     registry.get(id).inCall     = false;
+        if (registry.has(msg.to)) registry.get(msg.to).inCall = false;
         log(id, `beendet Gespräch mit ${msg.to}`);
         relay(id, msg);
         broadcastStations();
@@ -192,9 +257,9 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    if (id && stations.get(id)?.ws === ws) {
+    if (id && registry.get(id)?.ws === ws) {
       log(id, 'getrennt');
-      stations.delete(id);
+      registry.delete(id);
       broadcastStations();
     }
   });
@@ -205,7 +270,8 @@ wss.on('connection', (ws) => {
 // ─── Start ────────────────────────────────────────────────────────────────────
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[InterCom] Läuft auf http://0.0.0.0:${PORT}`);
-  console.log(`[InterCom] Config-API: http://0.0.0.0:${PORT}/api/config`);
+  console.log(`[InterCom] Stationsverwaltung: http://0.0.0.0:${PORT}/admin`);
+  console.log(`[InterCom] Config-API:         http://0.0.0.0:${PORT}/api/config?station=<id>`);
 });
 
 process.on('SIGTERM', () => server.close(() => process.exit(0)));

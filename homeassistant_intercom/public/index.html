@@ -9,7 +9,19 @@
 </head>
 <body>
 
-  <div id="screen-main" class="screen active">
+  <!-- ── Error screen: missing or unknown ?station= parameter ── -->
+  <div id="screen-error" class="screen">
+    <div class="err-wrap">
+      <div class="err-icon">⚠️</div>
+      <h1 id="err-title">Kein Stationslink</h1>
+      <p id="err-msg"></p>
+      <div id="err-detail"></div>
+      <a id="err-admin-link" href="admin" class="err-admin-btn">Zur Stationsverwaltung →</a>
+    </div>
+  </div>
+
+  <!-- ── Main intercom screen ── -->
+  <div id="screen-main" class="screen">
 
     <!-- Header -->
     <header>
@@ -52,7 +64,7 @@
       <span id="lbl-busy"></span>
     </div>
 
-    <!-- Station call buttons (populated from /api/config) -->
+    <!-- Station call buttons (populated from /api/config?station=...) -->
     <div id="panel-stations">
       <div class="panel-label">Anrufen:</div>
       <div id="station-list"><span class="no-stations">Lade…</span></div>
